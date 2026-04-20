@@ -41,7 +41,9 @@ export default function AnalysisPage() {
             <span style={{ fontSize: 13, fontWeight: 500, color: "var(--text)" }}>気象指標 × 出荷数量 散布図</span>
           </div>
           {!data && !error ? (
-            <div style={{ height: 300, background: "var(--surface-hover)", borderRadius: 6 }} />
+            <div className="flex items-center justify-center" style={{ height: "calc(100vh - 160px)" }}>
+              <div className="animate-spin" style={{ width: 56, height: 56, border: "4px solid var(--border-subtle)", borderTopColor: "var(--green-bright)", borderRadius: "50%" }} />
+            </div>
           ) : data ? (
             <ScatterChart data={data} />
           ) : null}

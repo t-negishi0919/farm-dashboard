@@ -69,10 +69,8 @@ export default function DataPage() {
         )}
 
         {!data && !error ? (
-          <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-            {Array.from({ length: 12 }).map((_, i) => (
-              <div key={i} style={{ height: 40, background: "var(--surface)", border: "1px solid var(--border-subtle)" }} />
-            ))}
+          <div className="flex items-center justify-center" style={{ height: "calc(100vh - 120px)" }}>
+            <div className="animate-spin" style={{ width: 56, height: 56, border: "4px solid var(--border-subtle)", borderTopColor: "var(--green-bright)", borderRadius: "50%" }} />
           </div>
         ) : data ? (
           <div style={{ border: "1px solid var(--border-subtle)", borderRadius: 8, overflow: "auto" }}>

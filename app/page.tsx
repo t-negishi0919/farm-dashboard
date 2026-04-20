@@ -98,10 +98,12 @@ function pearson(xs: number[], ys: number[]): number {
 }
 
 export default function DashboardPage() {
-  const [days, setDays] = useState<Days>(() => {
-    if (typeof window !== "undefined") return (localStorage.getItem("farm_time") as Days) || "30";
-    return "30";
-  });
+  const [days, setDays] = useState<Days>("30");
+
+  useEffect(() => {
+    const saved = localStorage.getItem("farm_time") as Days | null;
+    if (saved) setDays(saved);
+  }, []);
   const [data, setData] = useState<CombinedRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -152,14 +154,12 @@ export default function DashboardPage() {
             <button
               key={o.id}
               onClick={() => setDays(o.id)}
+              className={`${days === o.id ? "bg-green-500 text-white" : "bg-transparent text-green-400"} cursor-pointer transition-all duration-150`}
               style={{
-                background: days === o.id ? "var(--green)" : "none",
                 border: "none",
-                color: days === o.id ? "#fff" : "var(--text-muted)",
                 fontFamily: "'Space Grotesk', sans-serif",
                 fontSize: 12, fontWeight: 500,
                 padding: "5px 12px", borderRadius: 7,
-                cursor: "pointer", transition: "all 0.15s",
                 letterSpacing: "0.01em",
               }}
             >
@@ -180,10 +180,8 @@ export default function DashboardPage() {
         )}
 
         {!data && !error ? (
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14 }}>
-            {Array.from({ length: 7 }).map((_, i) => (
-              <div key={i} style={{ height: 120, background: "var(--surface)", border: "1px solid var(--border-subtle)" }} />
-            ))}
+          <div className="flex flex-1 items-center justify-center" style={{ minHeight: "calc(100vh - 120px)" }}>
+            <div className="animate-spin" style={{ width: 56, height: 56, border: "4px solid var(--border-subtle)", borderTopColor: "var(--green-bright)", borderRadius: "50%" }} />
           </div>
         ) : (
           <SummaryCards

@@ -35,10 +35,8 @@ export default function GrowthPage() {
           style={{ background: "var(--surface)", border: "1px solid var(--border-subtle)", borderRadius: 14, padding: "20px 22px" }}
         >
           {!data && !error ? (
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 6 }}>
-              {Array.from({ length: 35 }).map((_, i) => (
-                <div key={i} style={{ height: 64, background: "var(--surface-hover)", borderRadius: 6 }} />
-              ))}
+            <div className="flex items-center justify-center" style={{ height: "calc(100vh - 160px)" }}>
+              <div className="animate-spin" style={{ width: 56, height: 56, border: "4px solid var(--border-subtle)", borderTopColor: "var(--green-bright)", borderRadius: "50%" }} />
             </div>
           ) : data ? (
             <GrowthCalendar data={data} />
