@@ -11,11 +11,17 @@ function getAuth() {
 async function getSheet(sheetName: string): Promise<string[][]> {
   const auth = getAuth();
   const sheets = google.sheets({ version: "v4", auth });
-  const res = await sheets.spreadsheets.values.get({
-    spreadsheetId: process.env.GOOGLE_SPREADSHEET_ID,
-    range: sheetName,
-  });
-  return (res.data.values as string[][]) || [];
+  try {
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.GOOGLE_SPREADSHEET_ID,
+      range: sheetName,
+    });
+    return (res.data.values as string[][]) || [];
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (msg.includes("Unable to parse range") || msg.includes("notFound")) return [];
+    throw e;
+  }
 }
 
 export type WeatherRow = {
@@ -50,6 +56,18 @@ export type GrowthRow = {
   time: string;
   comment: string;
   aiSummary: string;
+  status: string;
+  photoUrl: string;
+};
+
+export type TroubleRow = {
+  date: string;
+  time: string;
+  diagnosis: string;
+  cause: string;
+  action: string;
+  prevention: string;
+  urgency: string;
   status: string;
   photoUrl: string;
 };
@@ -109,7 +127,7 @@ export async function getShippingData(): Promise<ShippingRow[]> {
 }
 
 export async function getGrowthData(): Promise<GrowthRow[]> {
-  const rows = await getSheet("生育記録");
+  const rows = await getSheet("仕立て診断");
   if (rows.length < 2) return [];
   return rows.slice(1).map((r) => ({
     date: r[0] || "",
@@ -118,6 +136,22 @@ export async function getGrowthData(): Promise<GrowthRow[]> {
     aiSummary: r[3] || "",
     status: r[4] || "",
     photoUrl: r[5] || "",
+  }));
+}
+
+export async function getTroubleData(): Promise<TroubleRow[]> {
+  const rows = await getSheet("不調相談");
+  if (rows.length < 2) return [];
+  return rows.slice(1).map((r) => ({
+    date: r[0] || "",
+    time: r[1] || "",
+    diagnosis: r[2] || "",
+    cause: r[3] || "",
+    action: r[4] || "",
+    prevention: r[5] || "",
+    urgency: r[6] || "",
+    status: r[7] || "",
+    photoUrl: r[8] || "",
   }));
 }
 
