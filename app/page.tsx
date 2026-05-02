@@ -1,137 +1,44 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { SummaryCards } from "@/components/SummaryCards";
-import { ShippingTempChart } from "@/components/ShippingTempChart";
-import { SunshineChart } from "@/components/SunshineChart";
-import { TempTrendChart } from "@/components/TempTrendChart";
-import type { CombinedRow } from "@/lib/googleSheets";
+import { YearlyKpiCards } from "@/components/YearlyKpiCards";
+import { MonthlyTrendChart } from "@/components/MonthlyTrendChart";
+import { GradeMixCard } from "@/components/GradeMixCard";
+import { WeatherTodayCard } from "@/components/WeatherTodayCard";
+import type { YearlySummary } from "./api/yearly-summary/route";
+import type { TodayWeather } from "./api/today-weather/route";
 
-type Days = "7" | "30" | "90" | "all";
+type Mode = "quantity" | "sales";
+const MODE_OPTS: { id: Mode; label: string }[] = [
+  { id: "quantity", label: "出荷数" },
+  { id: "sales",    label: "売上" },
+];
 
-const TIME_OPTS: { id: Days; label: string }[] = [
-  { id: "7",   label: "7日" },
-  { id: "30",  label: "30日" },
-  { id: "90",  label: "90日" },
+type Scope = "yoy" | "all";
+const SCOPE_OPTS: { id: Scope; label: string }[] = [
+  { id: "yoy", label: "今年 vs 昨年" },
   { id: "all", label: "全期間" },
 ];
 
-function ChartCard({
-  title,
-  dotColor,
-  tag,
-  children,
-  fullWidth,
-  delay,
-}: {
-  title: string;
-  dotColor: string;
-  tag?: string;
-  children: React.ReactNode;
-  fullWidth?: boolean;
-  delay: number;
-}) {
-  return (
-    <div
-      className={`anim anim-${delay}`}
-      style={{
-        background: "var(--surface)",
-        border: "1px solid var(--border-subtle)",
-        borderRadius: 14,
-        padding: "20px 22px",
-        position: "relative",
-        overflow: "hidden",
-        transition: "border-color 0.2s",
-        gridColumn: fullWidth ? "1 / -1" : undefined,
-      }}
-      onMouseEnter={(e) => ((e.currentTarget as HTMLDivElement).style.borderColor = "var(--border-strong)")}
-      onMouseLeave={(e) => ((e.currentTarget as HTMLDivElement).style.borderColor = "var(--border-subtle)")}
-    >
-      <div className="flex items-center justify-between" style={{ marginBottom: 16 }}>
-        <div className="flex items-center gap-2" style={{ fontSize: 13, fontWeight: 500, color: "var(--text)", letterSpacing: "0.01em" }}>
-          <div style={{ width: 8, height: 8, borderRadius: "50%", background: dotColor, flexShrink: 0 }} />
-          {title}
-        </div>
-        {tag && (
-          <span style={{ fontSize: 10, color: "var(--text-muted)", background: "var(--surface-hover)", border: "1px solid var(--border-subtle)", padding: "3px 8px", borderRadius: 20, letterSpacing: "0.04em" }}>
-            {tag}
-          </span>
-        )}
-      </div>
-      {children}
-    </div>
-  );
-}
-
-function ChartSkeleton({ height = 200 }: { height?: number }) {
-  return (
-    <div style={{ height, background: "var(--surface-hover)", borderRadius: 6, animation: "pulse 1.5s ease-in-out infinite" }} />
-  );
-}
-
-function CorrBadge({ r }: { r: number }) {
-  const abs = Math.abs(r);
-  const isStrong = abs > 0.4;
-  return (
-    <span style={{
-      fontFamily: "'Space Grotesk', sans-serif",
-      fontSize: 13, fontWeight: 600,
-      padding: "3px 10px", borderRadius: 6,
-      letterSpacing: "-0.01em",
-      background: isStrong ? "rgba(72,199,116,0.12)" : "rgba(255,195,80,0.12)",
-      color: isStrong ? "var(--green-bright)" : "var(--amber)",
-      border: `1px solid ${isStrong ? "rgba(72,199,116,0.2)" : "rgba(255,195,80,0.2)"}`,
-    }}>
-      r = {r.toFixed(2)}
-    </span>
-  );
-}
-
-function pearson(xs: number[], ys: number[]): number {
-  const n = xs.length;
-  if (n < 2) return 0;
-  const mx = xs.reduce((a, b) => a + b, 0) / n;
-  const my = ys.reduce((a, b) => a + b, 0) / n;
-  const num = xs.reduce((s, x, i) => s + (x - mx) * (ys[i] - my), 0);
-  const den = Math.sqrt(xs.reduce((s, x) => s + (x - mx) ** 2, 0) * ys.reduce((s, y) => s + (y - my) ** 2, 0));
-  return den === 0 ? 0 : num / den;
-}
-
 export default function DashboardPage() {
-  const [days, setDays] = useState<Days>("30");
-
-  useEffect(() => {
-    const saved = localStorage.getItem("farm_time") as Days | null;
-    if (saved) setDays(saved);
-  }, []);
-  const [data, setData] = useState<CombinedRow[] | null>(null);
+  const [summary, setSummary] = useState<YearlySummary | null>(null);
+  const [weather, setWeather] = useState<TodayWeather | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [mode, setMode] = useState<Mode>("quantity");
+  const [scope, setScope] = useState<Scope>("yoy");
+  const [compareYear, setCompareYear] = useState<number | "none" | null>(null);
 
   useEffect(() => {
-    localStorage.setItem("farm_time", days);
-    setData(null);
-    setError(null);
-    fetch(`/api/combined?days=${days}`)
+    fetch("/api/yearly-summary")
       .then((r) => r.json())
-      .then((d) => { if (d.error) throw new Error(d.error); setData(d); })
+      .then((d) => { if (d.error) throw new Error(d.error); setSummary(d); })
       .catch((e) => setError(String(e)));
-  }, [days]);
 
-  const latest = data && data.length > 0 ? data[data.length - 1] : null;
-  const prev = data && data.length > 1 ? data[data.length - 2] : null;
-  const validShip = data?.filter((r) => r.totalQuantity != null) ?? [];
-  const totalShipments = validShip.reduce((s, r) => s + (r.totalQuantity ?? 0), 0);
-  const avgShipments = validShip.length > 0 ? Math.round(totalShipments / validShip.length) : 0;
-  const validSun = data?.filter((r) => r.sunshine != null) ?? [];
-  const avgSunshine = validSun.length > 0 ? (validSun.reduce((s, r) => s + (r.sunshine ?? 0), 0) / validSun.length).toFixed(1) : "—";
-  const validHum = data?.filter((r) => r.humidity != null) ?? [];
-  const avgHumidity = validHum.length > 0 ? Math.round(validHum.reduce((s, r) => s + (r.humidity ?? 0), 0) / validHum.length) : 0;
-
-  const shipArr = data?.map((r) => r.totalQuantity).filter((v): v is number => v != null) ?? [];
-  const tempArr = data?.map((r) => r.tempMax).filter((v): v is number => v != null) ?? [];
-  const sunArr  = data?.map((r) => r.sunshine).filter((v): v is number => v != null) ?? [];
-  const rTemp = shipArr.length > 1 ? pearson(shipArr, tempArr.slice(-shipArr.length)) : 0;
-  const rSun  = shipArr.length > 1 ? pearson(shipArr, sunArr.slice(-shipArr.length)) : 0;
+    fetch("/api/today-weather")
+      .then((r) => r.json())
+      .then((d) => { if (d.error) return; setWeather(d); })
+      .catch(() => { /* 天気は失敗しても致命的ではない */ });
+  }, []);
 
   return (
     <div className="flex flex-col" style={{ height: "100vh", overflow: "hidden" }}>
@@ -142,106 +49,167 @@ export default function DashboardPage() {
       >
         <div className="flex items-center gap-2.5" style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: 18, fontWeight: 600, letterSpacing: "-0.02em" }}>
           ダッシュボード
-          <span style={{ fontSize: 10, background: "rgba(72,199,116,0.15)", color: "var(--green-bright)", border: "1px solid rgba(72,199,116,0.25)", borderRadius: 20, padding: "2px 8px", fontWeight: 500, letterSpacing: "0.04em", textTransform: "uppercase" }}>
-            Live
-          </span>
+          {summary && (
+            <span style={{ fontSize: 11, color: "var(--text-muted)", fontWeight: 400, letterSpacing: "0.04em" }}>
+              {summary.thisYear}年 {summary.thisMonth}月
+            </span>
+          )}
         </div>
-        <div
-          className="flex gap-1"
-          style={{ background: "var(--surface)", border: "1px solid var(--border-subtle)", borderRadius: 10, padding: 3 }}
+        <a
+          href="/analysis"
+          style={{
+            fontSize: 12,
+            color: "var(--text-muted)",
+            textDecoration: "none",
+            border: "1px solid var(--border-subtle)",
+            borderRadius: 8,
+            padding: "5px 12px",
+            transition: "all 0.15s",
+          }}
+          onMouseEnter={(e) => {
+            (e.currentTarget as HTMLAnchorElement).style.color = "var(--text)";
+            (e.currentTarget as HTMLAnchorElement).style.borderColor = "var(--border-strong)";
+          }}
+          onMouseLeave={(e) => {
+            (e.currentTarget as HTMLAnchorElement).style.color = "var(--text-muted)";
+            (e.currentTarget as HTMLAnchorElement).style.borderColor = "var(--border-subtle)";
+          }}
         >
-          {TIME_OPTS.map((o) => (
-            <button
-              key={o.id}
-              onClick={() => setDays(o.id)}
-              className={`${days === o.id ? "bg-green-500 text-white" : "bg-transparent text-green-400"} cursor-pointer transition-all duration-150`}
-              style={{
-                border: "none",
-                fontFamily: "'Space Grotesk', sans-serif",
-                fontSize: 12, fontWeight: 500,
-                padding: "5px 12px", borderRadius: 7,
-                letterSpacing: "0.01em",
-              }}
-            >
-              {o.label}
-            </button>
-          ))}
-        </div>
+          分析を見る →
+        </a>
       </div>
 
-      {/* Content */}
-      <div
-        style={{ flex: 1, overflowY: "auto", padding: "24px 28px", display: "flex", flexDirection: "column", gap: 20 }}
-      >
+      <div style={{ flex: 1, overflowY: "auto", padding: "24px 28px", display: "flex", flexDirection: "column", gap: 18 }}>
         {error && (
           <div style={{ background: "rgba(220,38,38,0.12)", border: "1px solid rgba(220,38,38,0.25)", borderRadius: 8, padding: "12px 16px", fontSize: 13, color: "#fca5a5" }}>
             ⚠️ データの取得に失敗しました: {error}
           </div>
         )}
 
-        {!data && !error ? (
-          <div className="flex flex-1 items-center justify-center" style={{ minHeight: "calc(100vh - 120px)" }}>
-            <div className="animate-spin" style={{ width: 56, height: 56, border: "4px solid var(--border-subtle)", borderTopColor: "var(--green-bright)", borderRadius: "50%" }} />
+        {/* KPI 4枚 */}
+        <YearlyKpiCards summary={summary} />
+
+        {/* 月別推移 */}
+        <div style={chartCardStyle}>
+          <div className="flex items-center justify-between" style={{ marginBottom: 14, gap: 12, flexWrap: "wrap" }}>
+            <div className="flex items-center gap-2" style={{ fontSize: 13, fontWeight: 500, color: "var(--text)" }}>
+              <div style={{ width: 8, height: 8, borderRadius: "50%", background: "oklch(0.68 0.18 148)" }} />
+              月別推移
+              {summary && scope === "yoy" && (
+                <span style={{ fontSize: 11, color: "var(--text-muted)", marginLeft: 4, fontFamily: "'Space Grotesk', sans-serif" }}>
+                  {summary.thisYear}年（棒） vs {effectiveCompare(compareYear, summary)} （線）
+                </span>
+              )}
+              {scope === "all" && (
+                <span style={{ fontSize: 11, color: "var(--text-muted)", marginLeft: 4, fontFamily: "'Space Grotesk', sans-serif" }}>
+                  全期間（年月）
+                </span>
+              )}
+            </div>
+            <div className="flex flex-wrap" style={{ gap: 6, alignItems: "center" }}>
+              <div className="flex gap-1" style={{ background: "var(--surface-hover)", border: "1px solid var(--border-subtle)", borderRadius: 8, padding: 3 }}>
+                {SCOPE_OPTS.map((o) => (
+                  <button
+                    key={o.id}
+                    onClick={() => setScope(o.id)}
+                    style={toggleBtnStyle(scope === o.id)}
+                  >
+                    {o.label}
+                  </button>
+                ))}
+              </div>
+              {scope === "yoy" && summary && (
+                <select
+                  value={String(compareYear ?? summary.lastYear)}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setCompareYear(v === "none" ? "none" : parseInt(v, 10));
+                  }}
+                  style={{
+                    background: "var(--surface-hover)",
+                    border: "1px solid var(--border-subtle)",
+                    color: "var(--text)",
+                    borderRadius: 8,
+                    padding: "5px 12px",
+                    fontSize: 12,
+                    fontFamily: "'Space Grotesk', sans-serif",
+                    cursor: "pointer",
+                    outline: "none",
+                  }}
+                  title="比較する年"
+                >
+                  <optgroup label="比較年">
+                    {summary.availableYears
+                      .filter((y) => y !== summary.thisYear)
+                      .map((y) => (
+                        <option key={y} value={String(y)}>{y}年</option>
+                      ))}
+                    <option value="none">比較なし</option>
+                  </optgroup>
+                </select>
+              )}
+              <div className="flex gap-1" style={{ background: "var(--surface-hover)", border: "1px solid var(--border-subtle)", borderRadius: 8, padding: 3 }}>
+                {MODE_OPTS.map((o) => (
+                  <button
+                    key={o.id}
+                    onClick={() => setMode(o.id)}
+                    style={toggleBtnStyle(mode === o.id)}
+                  >
+                    {o.label}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
-        ) : (
-          <SummaryCards
-            latest={latest}
-            prev={prev}
-            totalShipments={totalShipments}
-            avgShipments={avgShipments}
-            avgSunshine={avgSunshine}
-            avgHumidity={avgHumidity}
+          <MonthlyTrendChart
+            summary={summary}
+            mode={mode}
+            scope={scope}
+            compareYear={compareYear ?? (summary ? summary.lastYear : undefined)}
           />
-        )}
+        </div>
 
-        {/* Charts 2-column */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-          <ChartCard title="出荷数量 × 最高気温" dotColor="var(--green)" tag={data ? `r = ${rTemp.toFixed(2)}` : ""} delay={2}>
-            {!data && !error ? <ChartSkeleton /> : data ? <ShippingTempChart data={data} /> : null}
-            <div className="flex gap-4" style={{ marginTop: 12 }}>
-              <div className="flex items-center gap-1.5" style={{ fontSize: 11, color: "var(--text-muted)" }}>
-                <div style={{ width: 8, height: 8, borderRadius: "50%", background: "rgba(72,199,116,0.7)" }} />
-                出荷数量(箱)
-              </div>
-              <div className="flex items-center gap-1.5" style={{ fontSize: 11, color: "var(--text-muted)" }}>
-                <div style={{ width: 18, height: 2, borderRadius: 1, background: "oklch(0.74 0.16 68)" }} />
-                最高気温(℃)
-              </div>
-            </div>
-          </ChartCard>
-
-          <ChartCard title="出荷数量 × 日照時間" dotColor="var(--gold)" tag={data ? `r = ${rSun.toFixed(2)}` : ""} delay={3}>
-            {!data && !error ? <ChartSkeleton /> : data ? <SunshineChart data={data} /> : null}
-            <div className="flex gap-4" style={{ marginTop: 12 }}>
-              <div className="flex items-center gap-1.5" style={{ fontSize: 11, color: "var(--text-muted)" }}>
-                <div style={{ width: 8, height: 8, borderRadius: "50%", background: "rgba(72,199,116,0.7)" }} />
-                出荷数量(箱)
-              </div>
-              <div className="flex items-center gap-1.5" style={{ fontSize: 11, color: "var(--text-muted)" }}>
-                <div style={{ width: 18, height: 2, borderRadius: 1, background: "oklch(0.82 0.14 90)" }} />
-                日照時間(h)
-              </div>
-            </div>
-          </ChartCard>
-
-          {/* Full width temp trend */}
-          <ChartCard title="気温推移（最低・平均・最高）" dotColor="oklch(0.65 0.18 25)" tag="℃" fullWidth delay={4}>
-            {!data && !error ? <ChartSkeleton height={180} /> : data ? <TempTrendChart data={data} /> : null}
-            <div className="flex gap-4" style={{ marginTop: 12 }}>
-              {[
-                { label: "最高気温", color: "oklch(0.65 0.18 25)" },
-                { label: "平均気温", color: "oklch(0.74 0.16 68)" },
-                { label: "最低気温", color: "oklch(0.72 0.12 215)" },
-              ].map((l) => (
-                <div key={l.label} className="flex items-center gap-1.5" style={{ fontSize: 11, color: "var(--text-muted)" }}>
-                  <div style={{ width: 18, height: 2, borderRadius: 1, background: l.color }} />
-                  {l.label}
-                </div>
-              ))}
-            </div>
-          </ChartCard>
+        {/* 等級ミックス + 天気 (2カラム) */}
+        <div data-grid-2col style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1.2fr)", gap: 14 }}>
+          <GradeMixCard summary={summary} />
+          <WeatherTodayCard data={weather} />
         </div>
       </div>
+
+      <style>{`
+        @media (max-width: 900px) {
+          [data-grid-2col] {
+            grid-template-columns: 1fr !important;
+          }
+        }
+      `}</style>
     </div>
   );
+}
+
+const chartCardStyle: React.CSSProperties = {
+  background: "var(--surface)",
+  border: "1px solid var(--border-subtle)",
+  borderRadius: 14,
+  padding: "20px 22px",
+};
+
+function effectiveCompare(compareYear: number | "none" | null, summary: YearlySummary): string {
+  if (compareYear === "none") return "比較なし";
+  const y = compareYear ?? summary.lastYear;
+  return `${y}年`;
+}
+
+function toggleBtnStyle(active: boolean): React.CSSProperties {
+  return {
+    border: "none",
+    cursor: "pointer",
+    fontFamily: "'Space Grotesk', sans-serif",
+    fontSize: 12, fontWeight: 500,
+    padding: "4px 12px",
+    borderRadius: 6,
+    background: active ? "var(--green)" : "transparent",
+    color: active ? "#fff" : "var(--text-muted)",
+    transition: "all 0.15s",
+  };
 }

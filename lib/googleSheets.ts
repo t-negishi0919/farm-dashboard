@@ -39,15 +39,13 @@ export type WeatherRow = {
 
 export type ShippingRow = {
   shippingDate: string;
-  settlementDate: string;
-  grades: Record<string, { quantity: number | null; amount: number | null }>;
-  totalQuantity: number | null;
-  subtotal: number | null;
+  grades: Record<string, { quantity: number | null; amount: number | null; total: number | null }>;
   tax: number | null;
-  total: number | null;
   marketFee: number | null;
   jaFee: number | null;
   shippingFee: number | null;
+  totalQuantity: number | null;
+  subtotal: number | null;
   payment: number | null;
 };
 
@@ -75,6 +73,7 @@ export type TroubleRow = {
 export type CombinedRow = WeatherRow & {
   totalQuantity: number | null;
   payment: number | null;
+  subtotal: number | null;
 };
 
 function n(v: string | undefined): number | null {
@@ -100,30 +99,59 @@ export async function getWeatherData(): Promise<WeatherRow[]> {
   }));
 }
 
-const GRADE_KEYS = ["摘果", "ASS", "AS", "AM", "B", "C", "S"];
+// 出荷記録フォーマット（reformat後）:
+// A(0)=出荷日, B(1)=摘果数量, C(2)=摘果金額, D(3)=ASS数量, E(4)=ASS金額, ...
+// 9等級×2列: 摘果/ASS/AS/AM/B/C/D/S/M → r[1]〜r[18]
+// T(19)=受取消費税, U(20)=市場手数料, V(21)=農協手数料, W(22)=運賃
+// X(23)=摘果総額, Y(24)=ASS総額, Z(25)=AS総額, AA(26)=AM総額,
+// AB(27)=B総額, AC(28)=C総額, AD(29)=S総額, AE(30)=M総額, AF(31)=D総額
+const GRADE_KEYS = ["摘果", "ASS", "AS", "AM", "B", "C", "D", "S", "M"] as const;
+const GRADE_TOTAL_IDX: Record<string, number> = {
+  摘果: 23, ASS: 24, AS: 25, AM: 26, B: 27, C: 28, D: 31, S: 29, M: 30,
+};
+
+function normalizeDate(d: string): string {
+  return d.replace(/\//g, "-");
+}
 
 export async function getShippingData(): Promise<ShippingRow[]> {
   const rows = await getSheet("出荷記録");
   if (rows.length < 2) return [];
-  return rows.slice(1).map((r) => {
-    const grades: ShippingRow["grades"] = {};
-    GRADE_KEYS.forEach((g, i) => {
-      grades[g] = { quantity: n(r[2 + i * 2]), amount: n(r[3 + i * 2]) };
+  return rows.slice(1)
+    .filter((r) => r[0])
+    .map((r) => {
+      const grades: ShippingRow["grades"] = {};
+      GRADE_KEYS.forEach((g, i) => {
+        grades[g] = {
+          quantity: n(r[1 + i * 2]),
+          amount:   n(r[2 + i * 2]),
+          total:    n(r[GRADE_TOTAL_IDX[g]]),
+        };
+      });
+
+      const tax         = n(r[19]);
+      const marketFee   = n(r[20]);
+      const jaFee       = n(r[21]);
+      const shippingFee = n(r[22]);
+
+      const totalQuantity = GRADE_KEYS.reduce((s, g) => s + (grades[g].quantity ?? 0), 0) || null;
+      const subtotal      = GRADE_KEYS.reduce((s, g) => s + (grades[g].total    ?? 0), 0) || null;
+      const payment       = subtotal !== null
+        ? subtotal + (tax ?? 0) - (marketFee ?? 0) - (jaFee ?? 0) - (shippingFee ?? 0)
+        : null;
+
+      return {
+        shippingDate: normalizeDate(r[0] || ""),
+        grades,
+        tax,
+        marketFee,
+        jaFee,
+        shippingFee,
+        totalQuantity,
+        subtotal,
+        payment,
+      };
     });
-    return {
-      shippingDate: r[0] || "",
-      settlementDate: r[1] || "",
-      grades,
-      totalQuantity: n(r[16]),
-      subtotal: n(r[17]),
-      tax: n(r[18]),
-      total: n(r[19]),
-      marketFee: n(r[20]),
-      jaFee: n(r[21]),
-      shippingFee: n(r[22]),
-      payment: n(r[23]),
-    };
-  });
 }
 
 export async function getGrowthData(): Promise<GrowthRow[]> {
@@ -161,17 +189,35 @@ export async function getCombinedData(days?: number): Promise<CombinedRow[]> {
     getShippingData(),
   ]);
 
-  const shippingMap = new Map<string, ShippingRow>();
-  for (const s of shipping) {
-    shippingMap.set(s.shippingDate, s);
-  }
+  // 全日付の和集合で full outer join する
+  const weatherMap = new Map<string, WeatherRow>();
+  for (const w of weather) weatherMap.set(w.date, w);
 
-  let combined: CombinedRow[] = weather.map((w) => {
-    const s = shippingMap.get(w.date);
+  const shippingMap = new Map<string, ShippingRow>();
+  for (const s of shipping) shippingMap.set(s.shippingDate, s);
+
+  const allDates = new Set<string>([
+    ...weather.map((w) => w.date),
+    ...shipping.map((s) => s.shippingDate),
+  ]);
+
+  let combined: CombinedRow[] = Array.from(allDates).map((date) => {
+    const w = weatherMap.get(date);
+    const s = shippingMap.get(date);
     return {
-      ...w,
+      date,
+      weather:       w?.weather       ?? "",
+      tempMin:       w?.tempMin       ?? null,
+      tempMax:       w?.tempMax       ?? null,
+      tempAvg:       w?.tempAvg       ?? null,
+      humidity:      w?.humidity      ?? null,
+      precipitation: w?.precipitation ?? null,
+      sunshine:      w?.sunshine      ?? null,
+      et0:           w?.et0           ?? null,
+      windspeedMax:  w?.windspeedMax  ?? null,
       totalQuantity: s?.totalQuantity ?? null,
-      payment: s?.payment ?? null,
+      subtotal:      s?.subtotal      ?? null,
+      payment:       s?.payment       ?? null,
     };
   });
 
