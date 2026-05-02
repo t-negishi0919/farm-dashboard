@@ -1,9 +1,20 @@
 import { google } from "googleapis";
 
+function loadPrivateKey(): string {
+  // 1) base64 で渡された場合（Vercel UI が \n を勝手に改行展開する問題を回避）
+  const b64 = process.env.GOOGLE_PRIVATE_KEY_B64;
+  if (b64) {
+    return Buffer.from(b64, "base64").toString("utf-8");
+  }
+  // 2) 通常の GOOGLE_PRIVATE_KEY（\n エスケープも実改行も両対応）
+  const raw = process.env.GOOGLE_PRIVATE_KEY ?? "";
+  return raw.replace(/\\n/g, "\n");
+}
+
 function getAuth() {
   return new google.auth.JWT({
     email: process.env.GOOGLE_CLIENT_EMAIL,
-    key: (process.env.GOOGLE_PRIVATE_KEY || "").replace(/\\n/g, "\n"),
+    key: loadPrivateKey(),
     scopes: ["https://www.googleapis.com/auth/spreadsheets.readonly"],
   });
 }
