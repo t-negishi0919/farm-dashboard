@@ -62,15 +62,24 @@ export default function TimeclockListPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    setData(null);
-    setError(null);
+    const ac = new AbortController();
     const { from, to } = rangeDates(range);
     const params = new URLSearchParams({ from, to });
     if (user !== "all") params.set("user", user);
-    fetch(`/api/timeclock/list?${params.toString()}`)
+    fetch(`/api/timeclock/list?${params.toString()}`, { signal: ac.signal })
       .then((r) => r.json())
-      .then((d) => { if (d.error) throw new Error(d.error); setData(d.entries ?? []); })
-      .catch((e) => setError(String(e)));
+      .then((d) => {
+        if (ac.signal.aborted) return;
+        if (d.error) throw new Error(d.error);
+        setData(d.entries ?? []);
+        setError(null);
+      })
+      .catch((e) => {
+        if (ac.signal.aborted) return;
+        if (e instanceof Error && e.name === "AbortError") return;
+        setError(String(e));
+      });
+    return () => ac.abort();
   }, [range, user]);
 
   const summary = useMemo(() => {

@@ -142,41 +142,66 @@ function normalizeDate(d: string): string {
 export async function getShippingData(): Promise<ShippingRow[]> {
   const rows = await getSheet("出荷記録");
   if (rows.length < 2) return [];
-  return rows.slice(1)
-    .filter((r) => r[0])
-    .map((r) => {
+
+  // 同一出荷日の行を合算する。等級ごとの数量/金額/総額、税、各種手数料、合計箱数・小計・支払額を再計算。
+  const map = new Map<string, ShippingRow>();
+  const order: string[] = [];
+
+  for (const r of rows.slice(1)) {
+    if (!r[0]) continue;
+    const date = normalizeDate(r[0]);
+
+    let row = map.get(date);
+    if (!row) {
       const grades: ShippingRow["grades"] = {};
-      GRADE_KEYS.forEach((g, i) => {
-        grades[g] = {
-          quantity: n(r[1 + i * 2]),
-          amount:   n(r[2 + i * 2]),
-          total:    n(r[GRADE_TOTAL_IDX[g]]),
-        };
+      GRADE_KEYS.forEach((g) => {
+        grades[g] = { quantity: null, amount: null, total: null };
       });
-
-      const tax         = n(r[19]);
-      const marketFee   = n(r[20]);
-      const jaFee       = n(r[21]);
-      const shippingFee = n(r[22]);
-
-      const totalQuantity = GRADE_KEYS.reduce((s, g) => s + (grades[g].quantity ?? 0), 0) || null;
-      const subtotal      = GRADE_KEYS.reduce((s, g) => s + (grades[g].total    ?? 0), 0) || null;
-      const payment       = subtotal !== null
-        ? subtotal + (tax ?? 0) - (marketFee ?? 0) - (jaFee ?? 0) - (shippingFee ?? 0)
-        : null;
-
-      return {
-        shippingDate: normalizeDate(r[0] || ""),
+      row = {
+        shippingDate: date,
         grades,
-        tax,
-        marketFee,
-        jaFee,
-        shippingFee,
-        totalQuantity,
-        subtotal,
-        payment,
+        tax: null,
+        marketFee: null,
+        jaFee: null,
+        shippingFee: null,
+        totalQuantity: null,
+        subtotal: null,
+        payment: null,
       };
+      map.set(date, row);
+      order.push(date);
+    }
+
+    GRADE_KEYS.forEach((g, i) => {
+      const q = n(r[1 + i * 2]);
+      const a = n(r[2 + i * 2]);
+      const t = n(r[GRADE_TOTAL_IDX[g]]);
+      const cur = row.grades[g];
+      cur.quantity = addNullable(cur.quantity, q);
+      cur.amount   = addNullable(cur.amount,   a);
+      cur.total    = addNullable(cur.total,    t);
     });
+
+    row.tax         = addNullable(row.tax,         n(r[19]));
+    row.marketFee   = addNullable(row.marketFee,   n(r[20]));
+    row.jaFee       = addNullable(row.jaFee,       n(r[21]));
+    row.shippingFee = addNullable(row.shippingFee, n(r[22]));
+  }
+
+  for (const row of map.values()) {
+    row.totalQuantity = GRADE_KEYS.reduce((s, g) => s + (row.grades[g].quantity ?? 0), 0) || null;
+    row.subtotal      = GRADE_KEYS.reduce((s, g) => s + (row.grades[g].total    ?? 0), 0) || null;
+    row.payment = row.subtotal !== null
+      ? row.subtotal + (row.tax ?? 0) - (row.marketFee ?? 0) - (row.jaFee ?? 0) - (row.shippingFee ?? 0)
+      : null;
+  }
+
+  return order.map((d) => map.get(d)!);
+}
+
+function addNullable(a: number | null, b: number | null): number | null {
+  if (a == null && b == null) return null;
+  return (a ?? 0) + (b ?? 0);
 }
 
 export async function getGrowthData(): Promise<GrowthRow[]> {
