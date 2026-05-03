@@ -588,13 +588,15 @@ function CompareView({ a, aLabel, b, bLabel }: {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
-      {/* 2 本の 100% 帯 */}
-      <CompareStackRow label={aLabel} total={aTotal} accent="var(--green-bright)"
-        segments={rows.map((r) => ({ grade: r.grade, color: r.color, share: r.aShare, qty: r.aQty }))}
-      />
-      <CompareStackRow label={bLabel} total={bTotal} accent="var(--text-muted)"
-        segments={rows.map((r) => ({ grade: r.grade, color: r.color, share: r.bShare, qty: r.bQty }))}
-      />
+      {/* 縦の 100% 積み上げ棒 ×2(横並び) */}
+      <div style={{ display: "flex", justifyContent: "center", gap: 32, padding: "8px 0 12px" }}>
+        <CompareStackColumn label={aLabel} total={aTotal} accent="var(--green-bright)"
+          segments={rows.map((r) => ({ grade: r.grade, color: r.color, share: r.aShare, qty: r.aQty }))}
+        />
+        <CompareStackColumn label={bLabel} total={bTotal} accent="var(--text-muted)"
+          segments={rows.map((r) => ({ grade: r.grade, color: r.color, share: r.bShare, qty: r.bQty }))}
+        />
+      </div>
 
       {/* 等級別 比較表 */}
       <div style={{ marginTop: 4, border: "1px solid var(--border-subtle)", borderRadius: 8, overflow: "hidden" }}>
@@ -653,24 +655,21 @@ function CompareView({ a, aLabel, b, bLabel }: {
   );
 }
 
-function CompareStackRow({ label, total, accent, segments }: {
+function CompareStackColumn({ label, total, accent, segments }: {
   label: string; total: number; accent: string;
   segments: { grade: string; color: string; share: number; qty: number }[];
 }) {
+  const barH = 240;
+  const barW = 76;
   return (
-    <div>
-      <div className="flex items-center justify-between" style={{ marginBottom: 6, gap: 8, flexWrap: "wrap" }}>
-        <div style={{ fontSize: 12, fontWeight: 600, fontFamily: "'Space Grotesk', sans-serif", color: accent }}>
-          {label}
-        </div>
-        <div style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "'Space Grotesk', sans-serif" }}>
-          合計 {total.toLocaleString()} 箱
-        </div>
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8, minWidth: 0 }}>
+      <div style={{ fontSize: 12, fontWeight: 600, fontFamily: "'Space Grotesk', sans-serif", color: accent, textAlign: "center", maxWidth: 130, lineHeight: 1.3 }}>
+        {label}
       </div>
       {total === 0 ? (
         <div style={{
-          height: 28,
-          borderRadius: 6,
+          width: barW, height: barH,
+          borderRadius: 8,
           border: "1px dashed var(--border-subtle)",
           display: "flex", alignItems: "center", justifyContent: "center",
           fontSize: 11, color: "var(--text-dim)",
@@ -679,24 +678,27 @@ function CompareStackRow({ label, total, accent, segments }: {
         </div>
       ) : (
         <div style={{
-          height: 28, display: "flex",
-          borderRadius: 6, overflow: "hidden",
+          width: barW, height: barH,
+          borderRadius: 8, overflow: "hidden",
           border: "1px solid var(--border-subtle)",
+          display: "flex", flexDirection: "column",
+          background: "var(--surface-hover)",
         }}>
           {segments.filter((s) => s.share > 0).map((s) => (
             <div
               key={s.grade}
               title={`${s.grade}: ${s.share.toFixed(1)}% (${s.qty.toLocaleString()}箱)`}
               style={{
-                width: `${s.share}%`,
+                height: `${s.share}%`,
                 background: s.color,
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                minWidth: 0,
+                minHeight: 0,
+                overflow: "hidden",
               }}
             >
-              {s.share >= 8 && (
+              {s.share >= 6 && (
                 <span style={{
                   color: "#0e1610",
                   fontSize: 10,
@@ -704,14 +706,18 @@ function CompareStackRow({ label, total, accent, segments }: {
                   fontFamily: "'Space Grotesk', sans-serif",
                   whiteSpace: "nowrap",
                   padding: "0 4px",
+                  textShadow: "0 1px 0 rgba(255,255,255,0.2)",
                 }}>
-                  {s.grade} {s.share.toFixed(1)}%
+                  {s.grade} {s.share.toFixed(0)}%
                 </span>
               )}
             </div>
           ))}
         </div>
       )}
+      <div style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "'Space Grotesk', sans-serif", textAlign: "center" }}>
+        合計 {total.toLocaleString()} 箱
+      </div>
     </div>
   );
 }
