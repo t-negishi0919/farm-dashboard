@@ -58,24 +58,33 @@ function TimeclockPage() {
   const queryUser = sp.get("u");
   const lockUser = !!queryUser;
 
+  // SSR と CSR で初期値を揃えるため、初期値はクエリ or デフォルト固定。
+  // localStorage の値はマウント後の useEffect で反映する(hydration mismatch 防止)。
   const [user, setUser] = useState<string>(() => {
     if (queryUser && (TIMECLOCK_USERS as readonly string[]).includes(queryUser)) {
       return queryUser;
     }
-    if (typeof window !== "undefined") {
-      const stored = window.localStorage.getItem(LS_USER_KEY);
-      if (stored && (TIMECLOCK_USERS as readonly string[]).includes(stored)) {
-        return stored;
-      }
-    }
     return TIMECLOCK_USERS[0];
   });
+
+  // マウント後に localStorage から復元
+  useEffect(() => {
+    if (lockUser) return;
+    const stored = window.localStorage.getItem(LS_USER_KEY);
+    if (stored && (TIMECLOCK_USERS as readonly string[]).includes(stored) && stored !== user) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setUser(stored);
+    }
+    // 初回マウントだけ実行
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const [data, setData] = useState<ApiStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState<TimeclockAction | null>(null);
   const [ripples, setRipples] = useState<{ id: number; x: number; y: number }[]>([]);
-  const [now, setNow] = useState(new Date());
+  // 時計は SSR と CSR で値が違う → 初期は null、マウント後に開始
+  const [now, setNow] = useState<Date | null>(null);
 
   // 永続化
   useEffect(() => {
@@ -83,8 +92,10 @@ function TimeclockPage() {
     if (typeof window !== "undefined") window.localStorage.setItem(LS_USER_KEY, user);
   }, [user, lockUser]);
 
-  // 時計
+  // 時計(クライアントマウント後に開始)
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setNow(new Date());
     const t = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(t);
   }, []);
@@ -156,13 +167,14 @@ function TimeclockPage() {
   };
 
   const dateStr = useMemo(() => {
+    if (!now) return "—";
     const days = ["日", "月", "火", "水", "木", "金", "土"];
     return `${now.getFullYear()}年${now.getMonth() + 1}月${now.getDate()}日 (${days[now.getDay()]})`;
   }, [now]);
 
-  const hh = String(now.getHours()).padStart(2, "0");
-  const mm = String(now.getMinutes()).padStart(2, "0");
-  const ss = String(now.getSeconds()).padStart(2, "0");
+  const hh = now ? String(now.getHours()).padStart(2, "0") : "--";
+  const mm = now ? String(now.getMinutes()).padStart(2, "0") : "--";
+  const ss = now ? String(now.getSeconds()).padStart(2, "0") : "--";
 
   const logItems = [
     { key: "in",         icon: "🌅", label: "出勤",     time: entry?.punchIn },
