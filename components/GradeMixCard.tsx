@@ -92,9 +92,18 @@ export function GradeMixCard({ summary }: { summary: YearlySummary | null }) {
   const max = grades.reduce((m, g) => Math.max(m, g.quantity), 0);
 
   // 比較対象（compare ビュー時のみ使用）
-  const effectiveCompareYear = compareYear
-    ?? (summary.availableYears.find((y) => y !== summary.thisYear)?.toString()
-        ?? summary.lastYear.toString());
+  const baseYear =
+    selection.startsWith("month:")
+      ? selection.slice("month:".length).split("-")[0]
+      : selection.startsWith("week:")
+        ? selection.slice("week:".length).split("-W")[0]
+        : String(summary.thisYear);
+
+  const fallbackCompareYear =
+    summary.availableYears.find((y) => String(y) !== baseYear)?.toString()
+    ?? summary.lastYear.toString();
+  const effectiveCompareYear =
+    compareYear && compareYear !== baseYear ? compareYear : fallbackCompareYear;
 
   let compareGrades: GradeStat[] = [];
   let compareLabel = "";
