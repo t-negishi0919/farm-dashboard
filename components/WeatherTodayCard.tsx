@@ -141,8 +141,8 @@ function DayDetail({ forecast, dayLabel }: { forecast: DailyForecast; dayLabel: 
               </tr>
             </thead>
             <tbody>
-              <Row label="天気" cells={forecast.hourly.map((h) => (
-                <span style={{ fontSize: 18, lineHeight: 1 }}>{h.emoji}</span>
+              <Row label="天気" cells={forecast.hourly.map((h, i) => (
+                <span key={i} style={{ fontSize: 18, lineHeight: 1 }}>{h.emoji}</span>
               ))} />
               <Row label="気温" unit="℃" cells={forecast.hourly.map((h) => fmt(h.temp, 0))} />
               <Row label="風速" unit="m/s" cells={forecast.hourly.map((h) => fmt(h.windspeed, 1))} />

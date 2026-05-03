@@ -98,26 +98,23 @@ function TimeclockPage() {
   const queryUser = sp.get("u");
   const lockUser = !!queryUser;
 
-  const [user, setUser] = useState<string>("");
+  const [user, setUser] = useState<string>(() => {
+    if (queryUser && (TIMECLOCK_USERS as readonly string[]).includes(queryUser)) {
+      return queryUser;
+    }
+    if (typeof window !== "undefined") {
+      const stored = window.localStorage.getItem(LS_USER_KEY);
+      if (stored && (TIMECLOCK_USERS as readonly string[]).includes(stored)) {
+        return stored;
+      }
+    }
+    return TIMECLOCK_USERS[0];
+  });
   const [data, setData] = useState<ApiStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState<TimeclockAction | null>(null);
   const [successAction, setSuccessAction] = useState<TimeclockAction | null>(null);
   const [now, setNow] = useState(new Date());
-
-  // 初期ユーザー確定
-  useEffect(() => {
-    if (queryUser && (TIMECLOCK_USERS as readonly string[]).includes(queryUser)) {
-      setUser(queryUser);
-      return;
-    }
-    const stored = typeof window !== "undefined" ? window.localStorage.getItem(LS_USER_KEY) : null;
-    if (stored && (TIMECLOCK_USERS as readonly string[]).includes(stored)) {
-      setUser(stored);
-    } else {
-      setUser(TIMECLOCK_USERS[0]);
-    }
-  }, [queryUser]);
 
   // ユーザー保存
   useEffect(() => {
@@ -131,21 +128,40 @@ function TimeclockPage() {
     return () => clearInterval(t);
   }, []);
 
-  // 状態取得
+  // 状態取得(ユーザー切替時の stale response 対策に AbortController)
   useEffect(() => {
     if (!user) return;
-    setError(null);
-    fetch(`/api/timeclock?user=${encodeURIComponent(user)}`)
+    const ac = new AbortController();
+    fetch(`/api/timeclock?user=${encodeURIComponent(user)}`, { signal: ac.signal })
       .then((r) => r.json())
-      .then((d) => { if (d.error) throw new Error(d.error); setData(d); })
-      .catch((e) => setError(String(e)));
+      .then((d: ApiStatus & { error?: string }) => {
+        if (ac.signal.aborted) return;
+        if (d.error) {
+          setError(d.error);
+          return;
+        }
+        // 念のため: レスポンスのユーザーが現在のユーザーと一致するもののみ反映
+        if (d.user === user) {
+          setData(d);
+          setError(null);
+        }
+      })
+      .catch((e) => {
+        if (ac.signal.aborted) return;
+        if (e instanceof Error && e.name === "AbortError") return;
+        setError(String(e));
+      });
+    return () => ac.abort();
   }, [user]);
 
-  const status: TimeclockStatus = data?.status ?? "notStarted";
-  const button = buttonFor(status, data?.entry ?? null);
+  // data が null、または現在のユーザーのものではない場合は読み込み中
+  const loading = !data || data.user !== user;
+  const status: TimeclockStatus = loading ? "notStarted" : data.status;
+  const button = loading ? null : buttonFor(status, data.entry);
   // 既にボタンが退勤になっているとき、ゴーストの「退勤する」は重複なので非表示
-  const showGhostPunchOut =
-    (status === "working" && !data?.entry?.breakEnd) || status === "onBreak";
+  const showGhostPunchOut = !loading && (
+    (status === "working" && !data.entry?.breakEnd) || status === "onBreak"
+  );
 
   const submit = async (action: TimeclockAction) => {
     if (pending || successAction) return; // 連打防止
@@ -237,9 +253,11 @@ function TimeclockPage() {
           </div>
         </div>
 
-        <StatusChip status={status} />
+        {!loading && <StatusChip status={status} />}
 
-        {button ? (
+        {loading ? (
+          <LoadingCard />
+        ) : button ? (
           <BigButton
             spec={button}
             disabled={pending !== null || successAction !== null}
@@ -454,6 +472,43 @@ function BigButton({ spec, disabled, pending, success, onTap }: {
           50% { opacity: 1; }
           100% { opacity: 0; transform: scale(1.2); }
         }
+      `}</style>
+    </div>
+  );
+}
+
+function LoadingCard() {
+  return (
+    <div style={{
+      alignSelf: "stretch",
+      padding: 10,
+      borderRadius: 36,
+      background: `
+        radial-gradient(circle at 50% 20%, rgba(255,255,255,0.06), transparent 36%),
+        linear-gradient(180deg, #07100b, #020604)
+      `,
+      boxShadow: `
+        inset 0 8px 18px rgba(255,255,255,0.04),
+        inset 0 -14px 28px rgba(0,0,0,0.7),
+        0 24px 60px rgba(0,0,0,0.55)
+      `,
+    }}>
+      <div style={{
+        width: "100%", height: 260, borderRadius: 30,
+        background: "linear-gradient(145deg, rgba(255,255,255,0.04), rgba(255,255,255,0.01))",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        animation: "tc-loading 1.6s ease-in-out infinite",
+      }}>
+        <div style={{
+          width: 44, height: 44, borderRadius: "50%",
+          border: "3px solid rgba(255,255,255,0.08)",
+          borderTopColor: "rgba(255,255,255,0.4)",
+          animation: "spin 0.9s linear infinite",
+        }} />
+      </div>
+      <style>{`
+        @keyframes tc-loading { 0%,100% { opacity: 0.6 } 50% { opacity: 1 } }
+        @keyframes spin { to { transform: rotate(360deg) } }
       `}</style>
     </div>
   );

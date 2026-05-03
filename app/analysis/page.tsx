@@ -59,12 +59,21 @@ export default function AnalysisPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    setData(null);
-    setError(null);
-    fetch(`/api/combined?days=${days}`)
+    const ac = new AbortController();
+    fetch(`/api/combined?days=${days}`, { signal: ac.signal })
       .then((r) => r.json())
-      .then((d) => { if (d.error) throw new Error(d.error); setData(d); })
-      .catch((e) => setError(String(e)));
+      .then((d) => {
+        if (ac.signal.aborted) return;
+        if (d.error) throw new Error(d.error);
+        setData(d);
+        setError(null);
+      })
+      .catch((e) => {
+        if (ac.signal.aborted) return;
+        if (e instanceof Error && e.name === "AbortError") return;
+        setError(String(e));
+      });
+    return () => ac.abort();
   }, [days]);
 
   const shipArr = data?.map((r) => r.totalQuantity).filter((v): v is number => v != null) ?? [];
