@@ -6,7 +6,7 @@ import { NavLink } from "@/components/NavLink";
 
 const navItems = [
   { href: "/",          label: "ダッシュボード" },
-  { href: "/data",      label: "データ一覧" },
+  { href: "/data",      label: "気象データ一覧" },
   { href: "/analysis",  label: "相関分析" },
   { href: "/growth",    label: "生育カレンダー" },
   { href: "/shipping",  label: "出荷記録" },

@@ -44,7 +44,7 @@ export default function DataPage() {
       {/* Topbar */}
       <div className="flex items-center justify-between shrink-0" data-page-topbar style={{ height: 60, padding: "0 28px", background: "var(--bg2)", borderBottom: "1px solid var(--border-subtle)" }}>
         <div data-page-title style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: 18, fontWeight: 600, letterSpacing: "-0.02em" }}>
-          データ一覧
+          気象データ一覧
         </div>
         <button
           onClick={() => data && downloadCsv(data)}
