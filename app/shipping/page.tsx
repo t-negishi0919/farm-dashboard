@@ -39,6 +39,8 @@ const PERIOD_OPTS: { id: Period; label: string }[] = [
   { id: "lastMonth", label: "先月" },
 ];
 
+type YearFilter = "all" | string; // "all" | "2026" | "2025" ...
+
 function filterByPeriod(data: ShippingRow[], period: Period): ShippingRow[] {
   if (period === "all") return data;
   const now = new Date();
@@ -49,10 +51,16 @@ function filterByPeriod(data: ShippingRow[], period: Period): ShippingRow[] {
   return data.filter((r) => r.shippingDate.startsWith(prefix));
 }
 
+function filterByYear(data: ShippingRow[], year: YearFilter): ShippingRow[] {
+  if (year === "all") return data;
+  return data.filter((r) => r.shippingDate.startsWith(`${year}-`));
+}
+
 export default function ShippingPage() {
   const [data, setData]     = useState<ShippingRow[] | null>(null);
   const [error, setError]   = useState<string | null>(null);
   const [period, setPeriod] = useState<Period>("all");
+  const [year, setYear]     = useState<YearFilter>("all");
 
   useEffect(() => {
     fetch("/api/shipping")
@@ -61,7 +69,19 @@ export default function ShippingPage() {
       .catch((e) => setError(String(e)));
   }, []);
 
-  const filtered = data ? filterByPeriod([...data].reverse(), period) : [];
+  const availableYears = data
+    ? Array.from(new Set(data.map((r) => r.shippingDate.slice(0, 4)).filter(Boolean))).sort((a, b) => b.localeCompare(a))
+    : [];
+
+  // 年別を選んだとき、当年以外で「今月/先月」は意味が無いので自動的に「全期間」に戻す
+  const effectivePeriod: Period =
+    year !== "all" && year !== String(new Date().getFullYear()) && period !== "all"
+      ? "all"
+      : period;
+
+  const filtered = data
+    ? filterByPeriod(filterByYear([...data].reverse(), year), effectivePeriod)
+    : [];
 
   const totalQty     = filtered.reduce((s, r) => s + (r.totalQuantity ?? 0), 0);
   const totalPayment = filtered.reduce((s, r) => s + (r.payment ?? 0), 0);
@@ -79,22 +99,55 @@ export default function ShippingPage() {
         <div data-page-title style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: 18, fontWeight: 600, letterSpacing: "-0.02em" }}>
           出荷記録
         </div>
-        <div className="flex gap-1" style={{ background: "var(--surface)", border: "1px solid var(--border-subtle)", borderRadius: 10, padding: 3 }}>
-          {PERIOD_OPTS.map((o) => (
-            <button
-              key={o.id}
-              onClick={() => setPeriod(o.id)}
-              style={{
-                border: "none", cursor: "pointer", transition: "all 0.15s",
-                fontFamily: "'Space Grotesk', sans-serif", fontSize: 12, fontWeight: 500,
-                padding: "5px 12px", borderRadius: 7, letterSpacing: "0.01em",
-                background: period === o.id ? "var(--green)" : "transparent",
-                color: period === o.id ? "#fff" : "var(--text-muted)",
-              }}
-            >
-              {o.label}
-            </button>
-          ))}
+        <div className="flex" style={{ gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+          <select
+            value={year}
+            onChange={(e) => setYear(e.target.value as YearFilter)}
+            style={{
+              background: "var(--surface-hover)",
+              border: "1px solid var(--border-subtle)",
+              color: "var(--text)",
+              borderRadius: 8,
+              padding: "5px 12px",
+              fontSize: 12,
+              fontFamily: "'Space Grotesk', sans-serif",
+              cursor: "pointer",
+              outline: "none",
+              minWidth: 92,
+            }}
+            title="年度フィルター"
+          >
+            <option value="all">全年度</option>
+            {availableYears.map((y) => (
+              <option key={y} value={y}>{y}年</option>
+            ))}
+          </select>
+          <div className="flex gap-1" style={{ background: "var(--surface)", border: "1px solid var(--border-subtle)", borderRadius: 10, padding: 3 }}>
+            {PERIOD_OPTS.map((o) => {
+              const disabled =
+                year !== "all" && year !== String(new Date().getFullYear()) && o.id !== "all";
+              return (
+                <button
+                  key={o.id}
+                  onClick={() => setPeriod(o.id)}
+                  disabled={disabled}
+                  style={{
+                    border: "none",
+                    cursor: disabled ? "not-allowed" : "pointer",
+                    transition: "all 0.15s",
+                    fontFamily: "'Space Grotesk', sans-serif", fontSize: 12, fontWeight: 500,
+                    padding: "5px 12px", borderRadius: 7, letterSpacing: "0.01em",
+                    background: effectivePeriod === o.id ? "var(--green)" : "transparent",
+                    color: effectivePeriod === o.id ? "#fff" : disabled ? "var(--text-dim)" : "var(--text-muted)",
+                    opacity: disabled ? 0.5 : 1,
+                  }}
+                  title={disabled ? "今年以外は今月/先月フィルター無効" : undefined}
+                >
+                  {o.label}
+                </button>
+              );
+            })}
+          </div>
         </div>
       </div>
 
