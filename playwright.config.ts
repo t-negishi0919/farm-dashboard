@@ -17,7 +17,7 @@ export default defineConfig({
   retries: 0,
   reporter: process.env.CI ? "list" : "html",
   use: {
-    baseURL: "http://localhost:3000",
+    baseURL: "http://localhost:3100",
     trace: "on-first-retry",
     locale: "ja-JP",
     timezoneId: "Asia/Tokyo",
@@ -29,8 +29,8 @@ export default defineConfig({
     { name: "mobile",   use: { ...devices["iPhone 13"] } },
   ],
   webServer: {
-    command: "npm run dev",
-    url: "http://localhost:3000",
+    command: "npm run dev -- --port 3100",
+    url: "http://localhost:3100",
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
   },
