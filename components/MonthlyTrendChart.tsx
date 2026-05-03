@@ -9,6 +9,7 @@ import type { YearlySummary } from "@/app/api/yearly-summary/route";
 
 type Mode = "quantity" | "sales";
 type Scope = "yoy" | "all";
+type Unit = "month" | "week";
 type CompareYear = number | "none";
 
 const TOOLTIP_STYLE: React.CSSProperties = {
@@ -78,11 +79,12 @@ function buildYoYData(summary: YearlySummary, mode: Mode, compareYear: CompareYe
 }
 
 export function MonthlyTrendChart({
-  summary, mode = "quantity", scope = "yoy", compareYear,
+  summary, mode = "quantity", scope = "yoy", unit = "month", compareYear,
 }: {
   summary: YearlySummary | null;
   mode?: Mode;
   scope?: Scope;
+  unit?: Unit;
   compareYear?: CompareYear;
 }) {
   if (!summary) {
@@ -144,6 +146,97 @@ export function MonthlyTrendChart({
 
   // YoY モード
   const cmp: CompareYear = compareYear ?? summary.lastYear;
+
+  if (unit === "week") {
+    const curWeeks = summary.weeklyByYear?.[String(summary.thisYear)] ?? [];
+    const cmpWeeks = cmp !== "none" ? (summary.weeklyByYear?.[String(cmp)] ?? []) : [];
+    const cmpMap = new Map(cmpWeeks.map((w) => [w.week, w]));
+    const lastWeek = curWeeks.length > 0 ? curWeeks[curWeeks.length - 1].week : 0;
+    const maxWeek = Math.max(lastWeek, ...cmpWeeks.map((w) => w.week));
+
+    const weekData = Array.from({ length: maxWeek }, (_, i) => {
+      const wn = i + 1;
+      const c = curWeeks.find((w) => w.week === wn);
+      const p = cmpMap.get(wn);
+      const current = c ? (mode === "quantity" ? c.quantity : c.sales) : 0;
+      const prev = p ? (mode === "quantity" ? p.quantity : p.sales) : 0;
+      return {
+        label: `W${wn}`,
+        week: wn,
+        startDate: c?.startDate ?? p?.startDate ?? "",
+        current, prev,
+      };
+    });
+
+    const hasCmp = cmp !== "none" && cmpWeeks.length > 0;
+
+    return (
+      <ResponsiveContainer width="100%" height={280}>
+        <ComposedChart data={weekData} margin={{ top: 12, right: 16, left: -8, bottom: 0 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
+          <XAxis
+            dataKey="label"
+            tick={{ fontSize: 10, fill: "rgba(232,240,234,0.45)", fontFamily: "'Space Grotesk', sans-serif" }}
+            axisLine={false}
+            tickLine={false}
+            interval="preserveStartEnd"
+            minTickGap={12}
+          />
+          <YAxis
+            tick={{ fontSize: 10, fill: "rgba(232,240,234,0.35)" }}
+            axisLine={false}
+            tickLine={false}
+            tickFormatter={tickFormatter}
+          />
+          <Tooltip
+            contentStyle={TOOLTIP_STYLE}
+            labelStyle={{ color: "rgba(232,240,234,0.7)", fontFamily: "'Space Grotesk', sans-serif" }}
+            labelFormatter={(label, payload) => {
+              const d = payload?.[0]?.payload;
+              if (!d) return label;
+              const sd = d.startDate ? d.startDate.slice(5).replace("-", "/") : "";
+              return sd ? `${label} (${sd}〜)` : label;
+            }}
+            formatter={(value, name) => {
+              const num = Number(value) || 0;
+              if (name === "current") return [formatter(num), `${summary.thisYear}年`];
+              if (name === "prev")    return [formatter(num), `${cmp}年`];
+              return [formatter(num), name];
+            }}
+          />
+          <Legend
+            wrapperStyle={{ fontSize: 11, color: "var(--text-muted)" }}
+            iconType="circle"
+            formatter={(value) => {
+              if (value === "current") return `${summary.thisYear}年`;
+              if (value === "prev")    return `${cmp}年`;
+              return value;
+            }}
+          />
+          <Bar
+            dataKey="current"
+            name="current"
+            fill="rgba(72,199,116,0.55)"
+            stroke="rgba(72,199,116,0.9)"
+            strokeWidth={1}
+            radius={[3, 3, 0, 0]}
+          />
+          {hasCmp && (
+            <Line
+              type="monotone"
+              dataKey="prev"
+              name="prev"
+              stroke="oklch(0.74 0.16 68)"
+              strokeWidth={2}
+              dot={{ r: 2, fill: "oklch(0.74 0.16 68)" }}
+              connectNulls
+            />
+          )}
+        </ComposedChart>
+      </ResponsiveContainer>
+    );
+  }
+
   const data = buildYoYData(summary, mode, cmp);
   const hasCompareLine = cmp !== "none" && Boolean(summary.monthlyByYear[String(cmp)]);
 

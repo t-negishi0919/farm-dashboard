@@ -31,6 +31,19 @@ function formatYm(ym: string): string {
   return `${y}年${parseInt(m, 10)}月`;
 }
 
+/** "YYYY-Www" → "YYYY年 Wn (M/d〜)" 表示用 */
+function formatWeekKey(key: string, summary: YearlySummary): string {
+  const m = key.match(/^(\d{4})-W(\d{1,2})$/);
+  if (!m) return key;
+  const wy = m[1];
+  const wn = parseInt(m[2], 10);
+  const arr = summary.weeklyByYear?.[wy];
+  const wp = arr?.find((p) => p.week === wn);
+  if (!wp) return `${wy}年 W${wn}`;
+  const [, mm, dd] = wp.startDate.split("-");
+  return `${wy}年 W${wn} (${parseInt(mm, 10)}/${parseInt(dd, 10)}〜)`;
+}
+
 const TOOLTIP_STYLE: React.CSSProperties = {
   backgroundColor: "rgba(14,22,18,0.95)",
   border: "1px solid rgba(255,255,255,0.1)",
@@ -69,6 +82,10 @@ export function GradeMixCard({ summary }: { summary: YearlySummary | null }) {
     const ym = selection.slice("month:".length);
     grades = summary.gradesByMonth[ym] ?? [];
     scopeLabel = formatYm(ym);
+  } else if (selection.startsWith("week:")) {
+    const wk = selection.slice("week:".length);
+    grades = summary.gradesByWeek?.[wk] ?? [];
+    scopeLabel = formatWeekKey(wk, summary);
   }
 
   const totalQty = grades.reduce((s, g) => s + g.quantity, 0);
@@ -87,6 +104,12 @@ export function GradeMixCard({ summary }: { summary: YearlySummary | null }) {
     const otherYm = `${effectiveCompareYear}-${mo}`;
     compareGrades = summary.gradesByMonth[otherYm] ?? [];
     compareLabel = formatYm(otherYm);
+  } else if (selection.startsWith("week:")) {
+    const wk = selection.slice("week:".length);
+    const wn = wk.split("-W")[1];
+    const otherKey = `${effectiveCompareYear}-W${wn}`;
+    compareGrades = summary.gradesByWeek?.[otherKey] ?? [];
+    compareLabel = formatWeekKey(otherKey, summary);
   } else {
     compareGrades = summary.gradesByYear?.[effectiveCompareYear] ?? [];
     compareLabel = `${effectiveCompareYear}年 累計`;
@@ -149,6 +172,15 @@ export function GradeMixCard({ summary }: { summary: YearlySummary | null }) {
                 ))}
               </optgroup>
             )}
+            {summary.availableWeeks && summary.availableWeeks.length > 0 && (
+              <optgroup label="週別 (日〜土)">
+                {summary.availableWeeks.map((wk) => (
+                  <option key={wk} value={`week:${wk}`}>
+                    {formatWeekKey(wk, summary)}
+                  </option>
+                ))}
+              </optgroup>
+            )}
           </select>
         </div>
       </div>
@@ -177,6 +209,10 @@ export function GradeMixCard({ summary }: { summary: YearlySummary | null }) {
                 if (selection.startsWith("month:")) {
                   const ym = selection.slice("month:".length);
                   return String(y) !== ym.split("-")[0];
+                }
+                if (selection.startsWith("week:")) {
+                  const wk = selection.slice("week:".length);
+                  return String(y) !== wk.split("-W")[0];
                 }
                 return true;
               })

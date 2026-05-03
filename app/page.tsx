@@ -20,12 +20,19 @@ const SCOPE_OPTS: { id: Scope; label: string }[] = [
   { id: "all", label: "全期間" },
 ];
 
+type Unit = "month" | "week";
+const UNIT_OPTS: { id: Unit; label: string }[] = [
+  { id: "month", label: "月" },
+  { id: "week",  label: "週" },
+];
+
 export default function DashboardPage() {
   const [summary, setSummary] = useState<YearlySummary | null>(null);
   const [weather, setWeather] = useState<TodayWeather | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [mode, setMode] = useState<Mode>("quantity");
   const [scope, setScope] = useState<Scope>("yoy");
+  const [unit, setUnit] = useState<Unit>("month");
   const [compareYear, setCompareYear] = useState<number | "none" | null>(null);
 
   useEffect(() => {
@@ -95,7 +102,7 @@ export default function DashboardPage() {
           <div className="flex items-center justify-between" style={{ marginBottom: 14, gap: 12, flexWrap: "wrap" }}>
             <div className="flex items-center gap-2" style={{ fontSize: 13, fontWeight: 500, color: "var(--text)" }}>
               <div style={{ width: 8, height: 8, borderRadius: "50%", background: "oklch(0.68 0.18 148)" }} />
-              月別推移
+              {scope === "yoy" && unit === "week" ? "週別推移" : "月別推移"}
               {summary && scope === "yoy" && (
                 <span style={{ fontSize: 11, color: "var(--text-muted)", marginLeft: 4, fontFamily: "'Space Grotesk', sans-serif" }}>
                   {summary.thisYear}年（棒） vs {effectiveCompare(compareYear, summary)} （線）
@@ -119,6 +126,19 @@ export default function DashboardPage() {
                   </button>
                 ))}
               </div>
+              {scope === "yoy" && (
+                <div className="flex gap-1" style={{ background: "var(--surface-hover)", border: "1px solid var(--border-subtle)", borderRadius: 8, padding: 3 }}>
+                  {UNIT_OPTS.map((o) => (
+                    <button
+                      key={o.id}
+                      onClick={() => setUnit(o.id)}
+                      style={toggleBtnStyle(unit === o.id)}
+                    >
+                      {o.label}
+                    </button>
+                  ))}
+                </div>
+              )}
               {scope === "yoy" && summary && (
                 <select
                   value={String(compareYear ?? summary.lastYear)}
@@ -166,6 +186,7 @@ export default function DashboardPage() {
             summary={summary}
             mode={mode}
             scope={scope}
+            unit={unit}
             compareYear={compareYear ?? (summary ? summary.lastYear : undefined)}
           />
         </div>

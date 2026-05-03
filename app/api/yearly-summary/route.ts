@@ -30,6 +30,24 @@ export type GradeStat = {
   unitPrice: number | null; // 平均単価 = total / quantity
 };
 
+/** 週単位ポイント（日曜始まり・土曜終わり） */
+export type WeeklyPoint = {
+  /** 週の日曜の年（年跨ぎ反映） */
+  weekYear: number;
+  /** その weekYear 内での週番号 (1-53) */
+  week: number;
+  /** "YYYY-Www" 例: "2026-W14" */
+  isoKey: string;
+  /** 週の開始日(日曜) "YYYY-MM-DD" */
+  startDate: string;
+  /** 週の終了日(土曜) "YYYY-MM-DD" */
+  endDate: string;
+  quantity: number;
+  sales: number;
+  payment: number;
+  count: number;
+};
+
 /** 当月（進行中）の達成ペース予測 */
 export type MonthlyForecast = {
   /** 月の経過進捗率 0-1 (= 経過日数 / その月の日数) */
@@ -68,6 +86,12 @@ export type YearlySummary = {
   gradesByMonth: Record<string, GradeStat[]>;
   /** 年ごとの等級ミックス（"YYYY" → GradeStat[]） */
   gradesByYear: Record<string, GradeStat[]>;
+  /** 週ごとの等級ミックス（"YYYY-Www" → GradeStat[]） */
+  gradesByWeek: Record<string, GradeStat[]>;
+  /** 年ごとの週単位ポイント（"YYYY" → WeeklyPoint[]、週番号昇順） */
+  weeklyByYear: Record<string, WeeklyPoint[]>;
+  /** 出荷データのある週（"YYYY-Www" 降順） */
+  availableWeeks: string[];
   // 当月の累計
   thisMonthQty: number;
   thisMonthSales: number;
@@ -117,6 +141,55 @@ function daysInMonth(year: number, month: number): number {
   return new Date(year, month, 0).getDate();
 }
 
+function pad2(n: number): string {
+  return String(n).padStart(2, "0");
+}
+
+function ymd(d: Date): string {
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+}
+
+/**
+ * 日曜始まり・土曜終わりの週情報を返す。
+ * weekYear = 当該週の日曜が属する年。
+ * week = その weekYear の最初の日曜を W1 とした連番(年初の日曜より前の日は前年の最終週)。
+ */
+function weekInfo(date: Date): { weekYear: number; week: number; isoKey: string; sunday: Date; saturday: Date } {
+  const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  // その週の日曜
+  const sunday = new Date(d);
+  sunday.setDate(d.getDate() - d.getDay()); // getDay: Sun=0
+  const saturday = new Date(sunday);
+  saturday.setDate(sunday.getDate() + 6);
+
+  const weekYear = sunday.getFullYear();
+  // weekYear の 1/1 とその最初の日曜
+  const jan1 = new Date(weekYear, 0, 1);
+  const firstSunday = new Date(jan1);
+  firstSunday.setDate(jan1.getDate() + ((7 - jan1.getDay()) % 7));
+  const diffMs = sunday.getTime() - firstSunday.getTime();
+  const week = Math.floor(diffMs / (7 * 24 * 60 * 60 * 1000)) + 1;
+
+  return {
+    weekYear,
+    week,
+    isoKey: `${weekYear}-W${pad2(week)}`,
+    sunday,
+    saturday,
+  };
+}
+
+function emptyWeekly(weekYear: number, week: number, sunday: Date, saturday: Date): WeeklyPoint {
+  return {
+    weekYear,
+    week,
+    isoKey: `${weekYear}-W${pad2(week)}`,
+    startDate: ymd(sunday),
+    endDate: ymd(saturday),
+    quantity: 0, sales: 0, payment: 0, count: 0,
+  };
+}
+
 export async function GET() {
   try {
     const data = await getShippingData();
@@ -150,17 +223,52 @@ export async function GET() {
     const gradeByMonthAcc = new Map<string, ReturnType<typeof emptyGradeAcc>>();
     // 年別等級アキュムレータ: {year: gradeAcc}
     const gradeByYearAcc = new Map<number, ReturnType<typeof emptyGradeAcc>>();
+    // 週別等級アキュムレータ: {isoKey: gradeAcc}
+    const gradeByWeekAcc = new Map<string, ReturnType<typeof emptyGradeAcc>>();
+    // 週単位ポイント: {weekYear: Map<week, WeeklyPoint>}
+    const weeklyByYearMap = new Map<number, Map<number, WeeklyPoint>>();
 
     for (const r of data) {
       const m = r.shippingDate.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
       if (!m) continue;
       const y = parseInt(m[1], 10);
       const mo = parseInt(m[2], 10);
+      const day = parseInt(m[3], 10);
       if (!Number.isFinite(y) || !Number.isFinite(mo)) continue;
 
       const qty = r.totalQuantity ?? 0;
       const sales = r.subtotal ?? 0;
       const pay = r.payment ?? 0;
+
+      // 週情報
+      const wi = weekInfo(new Date(y, mo - 1, day));
+      let weeksMap = weeklyByYearMap.get(wi.weekYear);
+      if (!weeksMap) {
+        weeksMap = new Map();
+        weeklyByYearMap.set(wi.weekYear, weeksMap);
+      }
+      let wp = weeksMap.get(wi.week);
+      if (!wp) {
+        wp = emptyWeekly(wi.weekYear, wi.week, wi.sunday, wi.saturday);
+        weeksMap.set(wi.week, wp);
+      }
+      wp.quantity += qty;
+      wp.sales += sales;
+      wp.payment += pay;
+      wp.count += 1;
+
+      let weekAcc = gradeByWeekAcc.get(wi.isoKey);
+      if (!weekAcc) {
+        weekAcc = emptyGradeAcc();
+        gradeByWeekAcc.set(wi.isoKey, weekAcc);
+      }
+      for (const g of GRADES) {
+        const grade = r.grades[g];
+        if (grade) {
+          weekAcc[g].quantity += grade.quantity ?? 0;
+          weekAcc[g].total += grade.total ?? 0;
+        }
+      }
 
       const ym = `${y}-${String(mo).padStart(2, "0")}`;
       const at = allTimeMap.get(ym) ?? { ym, year: y, month: mo, quantity: 0, sales: 0, payment: 0 };
@@ -283,6 +391,23 @@ export async function GET() {
       }
     }
 
+    // 週ごとの等級ミックス
+    const gradesByWeek: Record<string, GradeStat[]> = {};
+    for (const [key, acc] of gradeByWeekAcc.entries()) {
+      const stats = toGradeStats(acc);
+      if (stats.length > 0) {
+        gradesByWeek[key] = stats;
+      }
+    }
+
+    // 週単位ポイント (年毎、週番号昇順)
+    const weeklyByYear: Record<string, WeeklyPoint[]> = {};
+    for (const [wy, weeks] of weeklyByYearMap.entries()) {
+      weeklyByYear[String(wy)] = Array.from(weeks.values()).sort((a, b) => a.week - b.week);
+    }
+
+    const availableWeeks = Object.keys(gradesByWeek).sort((a, b) => b.localeCompare(a));
+
     // 当月ペース予測
     const dim = daysInMonth(thisYear, thisMonth);
     const elapsedRatio = Math.min(now.getDate() / dim, 1);
@@ -318,6 +443,9 @@ export async function GET() {
       availableMonths,
       gradesByMonth,
       gradesByYear,
+      gradesByWeek,
+      weeklyByYear,
+      availableWeeks,
       thisMonthQty,
       thisMonthSales,
       prevYearSameMonthQty,
