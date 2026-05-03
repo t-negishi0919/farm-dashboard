@@ -19,6 +19,20 @@ function getAuth() {
   });
 }
 
+export function getWriteAuth() {
+  return new google.auth.JWT({
+    email: process.env.GOOGLE_CLIENT_EMAIL,
+    key: loadPrivateKey(),
+    scopes: ["https://www.googleapis.com/auth/spreadsheets"],
+  });
+}
+
+export function getSpreadsheetId(): string {
+  const id = process.env.GOOGLE_SPREADSHEET_ID;
+  if (!id) throw new Error("GOOGLE_SPREADSHEET_ID is not set");
+  return id;
+}
+
 async function getSheet(sheetName: string): Promise<string[][]> {
   const auth = getAuth();
   const sheets = google.sheets({ version: "v4", auth });

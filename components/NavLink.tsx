@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 
 export function NavLink({ href, label }: { href: string; label: string }) {
   const pathname = usePathname();
-  const isActive = href === "/" ? pathname === "/" : pathname.startsWith(href);
+  const isActive = pathname === href;
 
   return (
     <Link
