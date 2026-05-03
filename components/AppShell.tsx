@@ -14,7 +14,15 @@ const navItems = [
   { href: "/timeclock/list",  label: "勤怠一覧" },
 ];
 
-export function AppShell({ children }: { children: React.ReactNode }) {
+export function AppShell({
+  children,
+  userEmail,
+  signOutAction,
+}: {
+  children: React.ReactNode;
+  userEmail?: string | null;
+  signOutAction?: () => Promise<void>;
+}) {
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
 
@@ -98,11 +106,46 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             >
               農
             </div>
-            <div>
+            <div style={{ minWidth: 0, flex: 1 }}>
               <div style={{ fontSize: 12, fontWeight: 500 }}>根岸農場</div>
-              <div style={{ fontSize: 10, color: "var(--text-muted)" }}>きゅうり栽培</div>
+              <div
+                style={{ fontSize: 10, color: "var(--text-muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                title={userEmail ?? undefined}
+              >
+                {userEmail ?? "きゅうり栽培"}
+              </div>
             </div>
           </div>
+          {signOutAction && (
+            <form action={signOutAction}>
+              <button
+                type="submit"
+                style={{
+                  width: "100%",
+                  marginTop: 8,
+                  padding: "7px 10px",
+                  fontSize: 11,
+                  border: "1px solid var(--border-subtle)",
+                  background: "transparent",
+                  color: "var(--text-muted)",
+                  borderRadius: 8,
+                  cursor: "pointer",
+                  letterSpacing: "0.04em",
+                  transition: "all 0.15s",
+                }}
+                onMouseEnter={(e) => {
+                  (e.currentTarget as HTMLButtonElement).style.color = "var(--text)";
+                  (e.currentTarget as HTMLButtonElement).style.borderColor = "var(--border-strong)";
+                }}
+                onMouseLeave={(e) => {
+                  (e.currentTarget as HTMLButtonElement).style.color = "var(--text-muted)";
+                  (e.currentTarget as HTMLButtonElement).style.borderColor = "var(--border-subtle)";
+                }}
+              >
+                ログアウト
+              </button>
+            </form>
+          )}
         </div>
       </aside>
 

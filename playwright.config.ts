@@ -29,9 +29,10 @@ export default defineConfig({
     { name: "mobile",   use: { ...devices["iPhone 13"] } },
   ],
   webServer: {
-    command: "npm run dev -- --port 3100",
+    command: "SKIP_AUTH=1 npm run dev -- --port 3100",
     url: "http://localhost:3100",
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
+    env: { SKIP_AUTH: "1" },
   },
 });
