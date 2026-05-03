@@ -139,8 +139,12 @@
 
 /* Responsive: tablet & mobile (≤768px) */
 @media (max-width: 768px) {
+  html, body {
+    max-width: 100%;
+    overflow-x: hidden !important;
+  }
   body {
-    overflow: auto !important;
+    overflow-y: auto !important;
   }
   .app-shell-hamburger {
     display: flex !important;
@@ -157,12 +161,16 @@
   }
   .app-shell-main {
     width: 100%;
+    max-width: 100%;
+    min-width: 0;
     overflow: visible !important;
   }
   /* Each page wrapper: drop the 100vh trap so page scrolls naturally */
   [data-page-shell] {
     height: auto !important;
     min-height: 100vh;
+    max-width: 100%;
+    min-width: 0;
     overflow: visible !important;
   }
   [data-page-shell] [data-page-topbar] {
@@ -201,6 +209,23 @@
   /* GradeMixCard tighten on mobile */
   [data-grade-mix-card] {
     padding: 14px 14px !important;
+    max-width: 100%;
+    min-width: 0;
+    overflow: hidden;
+    box-sizing: border-box;
+  }
+  [data-grade-mix-card] * {
+    box-sizing: border-box;
+  }
+  [data-grade-mix-toolbar] > div {
+    flex-wrap: wrap;
+  }
+  [data-grade-mix-toolbar] button {
+    padding: 3px 8px !important;
+    font-size: 11px !important;
+  }
+  [data-grade-mix-toolbar] select {
+    max-width: 100%;
   }
   [data-pie-grid] {
     grid-template-columns: 1fr !important;
