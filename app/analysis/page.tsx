@@ -78,13 +78,13 @@ export default function AnalysisPage() {
             <div className="ya-spinner" />
           </div>
         ) : data ? (
-          <>
+          <div className="ya-cards">
             <Card1 today={data.today} />
             <Card2 top={data.top} bottom={data.bottom} />
             <Card3 week={data.week} forecast={data.forecast} />
             <Card4 forecast={data.forecast} />
             <Card5 />
-          </>
+          </div>
         ) : null}
       </div>
 
@@ -104,6 +104,46 @@ export default function AnalysisPage() {
           padding: 18px 14px 32px;
           display: flex; flex-direction: column;
           gap: 12px;
+        }
+        .ya-cards {
+          display: flex; flex-direction: column;
+          gap: 12px;
+        }
+
+        /* Desktop layout: 2-column grid */
+        @media (min-width: 900px) {
+          .ya-app {
+            max-width: min(100%, 1240px);
+            padding: 24px 28px 40px;
+            gap: 16px;
+          }
+          .ya-page-title h1 { font-size: 22px; }
+          .ya-cards {
+            display: grid;
+            grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+            grid-template-areas:
+              "summary forecast"
+              "rank    forecast"
+              "week    forecast"
+              "details details";
+            gap: 16px;
+            align-items: start;
+          }
+          .ya-app .ya-card.c1 { grid-area: summary; }
+          .ya-app .ya-card.c2 { grid-area: rank; }
+          .ya-app .ya-card.c3 { grid-area: week; }
+          .ya-app .ya-card.c4 {
+            grid-area: forecast;
+            position: sticky;
+            top: 24px;
+            align-self: start;
+          }
+          .ya-app .ya-card.c5 { grid-area: details; }
+        }
+        @media (min-width: 1200px) {
+          .ya-cards {
+            grid-template-columns: minmax(0, 1.5fr) minmax(360px, 1fr);
+          }
         }
         .ya-page-title {
           display: flex; align-items: baseline; justify-content: space-between;
