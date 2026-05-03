@@ -156,11 +156,11 @@ export default function ShippingPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filtered.map((r) => {
+                  {filtered.map((r, i) => {
                     const fees = (r.marketFee ?? 0) + (r.jaFee ?? 0) + (r.shippingFee ?? 0);
                     return (
                       <TableRow
-                        key={r.shippingDate}
+                        key={`${r.shippingDate}-${i}`}
                         style={{ borderBottom: "1px solid var(--border-subtle)", transition: "background 0.1s" }}
                         onMouseEnter={(e) => ((e.currentTarget as HTMLTableRowElement).style.background = "var(--surface-hover)")}
                         onMouseLeave={(e) => ((e.currentTarget as HTMLTableRowElement).style.background = "transparent")}

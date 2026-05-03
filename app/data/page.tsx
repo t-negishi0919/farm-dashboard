@@ -88,8 +88,8 @@ export default function DataPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {[...data].reverse().map((r) => (
-                  <TableRow key={r.date} style={{ borderBottom: "1px solid var(--border-subtle)", transition: "background 0.1s" }}
+                {[...data].reverse().map((r, i) => (
+                  <TableRow key={`${r.date}-${i}`} style={{ borderBottom: "1px solid var(--border-subtle)", transition: "background 0.1s" }}
                     onMouseEnter={(e) => ((e.currentTarget as HTMLTableRowElement).style.background = "var(--surface-hover)")}
                     onMouseLeave={(e) => ((e.currentTarget as HTMLTableRowElement).style.background = "transparent")}
                   >
