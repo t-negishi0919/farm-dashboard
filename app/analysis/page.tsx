@@ -74,10 +74,10 @@ export default function AnalysisPage() {
   const rSun  = shipArr.length > 1 ? pearson(shipArr, sunArr.slice(-shipArr.length)) : 0;
 
   return (
-    <div className="flex flex-col" style={{ height: "100vh", overflow: "hidden" }}>
+    <div className="flex flex-col" data-page-shell style={{ height: "100vh", overflow: "hidden" }}>
       {/* Topbar */}
-      <div className="flex items-center justify-between shrink-0" style={{ height: 60, padding: "0 28px", background: "var(--bg2)", borderBottom: "1px solid var(--border-subtle)" }}>
-        <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: 18, fontWeight: 600, letterSpacing: "-0.02em" }}>
+      <div className="flex items-center justify-between shrink-0" data-page-topbar style={{ height: 60, padding: "0 28px", background: "var(--bg2)", borderBottom: "1px solid var(--border-subtle)" }}>
+        <div data-page-title style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: 18, fontWeight: 600, letterSpacing: "-0.02em" }}>
           相関分析
         </div>
         <div className="flex gap-1" style={{ background: "var(--surface)", border: "1px solid var(--border-subtle)", borderRadius: 10, padding: 3 }}>
@@ -102,7 +102,7 @@ export default function AnalysisPage() {
         </div>
       </div>
 
-      <div style={{ flex: 1, overflowY: "auto", padding: "24px 28px", display: "flex", flexDirection: "column", gap: 18 }}>
+      <div data-page-content style={{ flex: 1, overflowY: "auto", padding: "24px 28px", display: "flex", flexDirection: "column", gap: 18 }}>
         {error && (
           <div style={{ background: "rgba(220,38,38,0.12)", border: "1px solid rgba(220,38,38,0.25)", borderRadius: 8, padding: "12px 16px", fontSize: 13, color: "#fca5a5" }}>
             ⚠️ データの取得に失敗しました: {error}
@@ -124,7 +124,7 @@ export default function AnalysisPage() {
         </ChartCard>
 
         {/* 出荷×気温・出荷×日照（時系列） */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+        <div data-grid-analysis-2col style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
           <ChartCard title="出荷数量 × 最高気温" dotColor="oklch(0.65 0.18 25)" tag={data ? `r = ${rTemp.toFixed(2)}` : ""}>
             {!data && !error ? (
               <div style={{ height: 200, background: "var(--surface-hover)", borderRadius: 8, animation: "pulse 1.5s ease-in-out infinite" }} />
