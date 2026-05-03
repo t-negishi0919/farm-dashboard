@@ -5,7 +5,12 @@ import { test, expect } from "@playwright/test";
  * 本番 Sheets を絶対に汚さないように API レイヤを page.route で完全モックする。
  */
 
-const baseEntry = {
+type Entry = {
+  date: string; user: string;
+  punchIn: string | null; breakStart: string | null; breakEnd: string | null; punchOut: string | null;
+  workedHours: number | null; breakHours: number | null; note: string;
+};
+const baseEntry: Entry = {
   date: "2026-05-03", user: "大輔",
   punchIn: null, breakStart: null, breakEnd: null, punchOut: null,
   workedHours: null, breakHours: null, note: "",
