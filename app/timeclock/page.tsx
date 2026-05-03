@@ -37,6 +37,12 @@ const STATUS_LABEL: Record<FlowKey, string> = {
   finished: "退勤済み",
 };
 
+function jstDateString(d: Date): string {
+  // JST = UTC+9. ロケールに依らず YYYY-MM-DD を返す。
+  const jst = new Date(d.getTime() + 9 * 60 * 60 * 1000);
+  return jst.toISOString().slice(0, 10);
+}
+
 function flowKey(status: TimeclockStatus, entry: TimeclockEntry | null): FlowKey {
   if (status === "notStarted") return "idle";
   if (status === "onBreak") return "onBreak";
@@ -85,6 +91,8 @@ function TimeclockPage() {
   const [ripples, setRipples] = useState<{ id: number; x: number; y: number }[]>([]);
   // 時計は SSR と CSR で値が違う → 初期は null、マウント後に開始
   const [now, setNow] = useState<Date | null>(null);
+  // 日付が変わったら再フェッチさせるためのバージョン
+  const [dataVersion, setDataVersion] = useState(0);
 
   // 永続化
   useEffect(() => {
@@ -92,15 +100,25 @@ function TimeclockPage() {
     if (typeof window !== "undefined") window.localStorage.setItem(LS_USER_KEY, user);
   }, [user, lockUser]);
 
-  // 時計(クライアントマウント後に開始)
+  // 時計(クライアントマウント後に開始)+ JST 日付が変わったら自動で再フェッチ
   useEffect(() => {
+    const initial = new Date();
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setNow(new Date());
-    const t = setInterval(() => setNow(new Date()), 1000);
+    setNow(initial);
+    let lastJstDate = jstDateString(initial);
+    const t = setInterval(() => {
+      const next = new Date();
+      setNow(next);
+      const jst = jstDateString(next);
+      if (jst !== lastJstDate) {
+        lastJstDate = jst;
+        setDataVersion((v) => v + 1);
+      }
+    }, 1000);
     return () => clearInterval(t);
   }, []);
 
-  // 状態取得
+  // 状態取得 (user 変更 / 日付変更で再実行)
   useEffect(() => {
     if (!user) return;
     const ac = new AbortController();
@@ -110,6 +128,7 @@ function TimeclockPage() {
         if (ac.signal.aborted) return;
         if (d.error) { setError(d.error); return; }
         if (d.user === user) {
+          // 日付変更時は entry を null にリセットしておく(古い完了表示が残らないように)
           setData(d);
           setError(null);
         }
@@ -120,7 +139,7 @@ function TimeclockPage() {
         setError(String(e));
       });
     return () => ac.abort();
-  }, [user]);
+  }, [user, dataVersion]);
 
   const loading = !data || data.user !== user;
   const status: TimeclockStatus = loading ? "notStarted" : data.status;
