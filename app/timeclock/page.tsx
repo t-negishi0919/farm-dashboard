@@ -51,21 +51,39 @@ const PALETTE_BLUE: Palette = {
   glow: "rgba(70,150,220,0.28)",
 };
 
-const BUTTON_BY_STATUS: Record<TimeclockStatus, ButtonSpec | null> = {
-  notStarted: {
-    action: "punchIn", label: "出勤", hint: "押して打刻",
-    icon: "power", palette: PALETTE_GREEN,
-  },
-  working: {
-    action: "breakStart", label: "休憩開始", hint: "押して打刻",
-    icon: "coffee", palette: PALETTE_AMBER,
-  },
-  onBreak: {
-    action: "breakEnd", label: "休憩終了", hint: "押して打刻",
-    icon: "play", palette: PALETTE_BLUE,
-  },
-  finished: null,
+const PALETTE_DUSK: Palette = {
+  faceTop: "#7d8fd0", faceMid: "#4a5da3", faceBot: "#2d3a78",
+  rim: "#1c2552",
+  glow: "rgba(74,93,163,0.30)",
 };
+
+const BUTTON_PUNCH_IN: ButtonSpec = {
+  action: "punchIn", label: "出勤", hint: "押して打刻",
+  icon: "power", palette: PALETTE_GREEN,
+};
+const BUTTON_BREAK_START: ButtonSpec = {
+  action: "breakStart", label: "休憩開始", hint: "押して打刻",
+  icon: "coffee", palette: PALETTE_AMBER,
+};
+const BUTTON_BREAK_END: ButtonSpec = {
+  action: "breakEnd", label: "休憩終了", hint: "押して打刻",
+  icon: "play", palette: PALETTE_BLUE,
+};
+const BUTTON_PUNCH_OUT: ButtonSpec = {
+  action: "punchOut", label: "退勤", hint: "押して打刻",
+  icon: "check", palette: PALETTE_DUSK,
+};
+
+function buttonFor(status: TimeclockStatus, entry: TimeclockEntry | null): ButtonSpec | null {
+  switch (status) {
+    case "notStarted": return BUTTON_PUNCH_IN;
+    case "onBreak":    return BUTTON_BREAK_END;
+    case "working":
+      // 休憩を既に取り終えていたら次は退勤
+      return entry?.breakEnd ? BUTTON_PUNCH_OUT : BUTTON_BREAK_START;
+    case "finished":   return null;
+  }
+}
 
 export default function TimeclockPageWrapper() {
   return (
@@ -124,7 +142,10 @@ function TimeclockPage() {
   }, [user]);
 
   const status: TimeclockStatus = data?.status ?? "notStarted";
-  const button = BUTTON_BY_STATUS[status];
+  const button = buttonFor(status, data?.entry ?? null);
+  // 既にボタンが退勤になっているとき、ゴーストの「退勤する」は重複なので非表示
+  const showGhostPunchOut =
+    (status === "working" && !data?.entry?.breakEnd) || status === "onBreak";
 
   const submit = async (action: TimeclockAction) => {
     if (pending || successAction) return; // 連打防止
@@ -230,7 +251,7 @@ function TimeclockPage() {
           <FinishedCard entry={data?.entry ?? null} />
         )}
 
-        {(status === "working" || status === "onBreak") && (
+        {showGhostPunchOut && (
           <button
             onClick={() => submit("punchOut")}
             disabled={pending !== null || successAction !== null}

@@ -175,6 +175,9 @@ export async function punch(user: string, action: TimeclockAction): Promise<Punc
       if (status !== "working") {
         throw new Error(`勤務中ではないため休憩開始できません (現在: ${labelOf(status)})`);
       }
+      if (current[3]) {
+        throw new Error("本日は既に休憩を取得済みです");
+      }
       current[3] = time;
       break;
     case "breakEnd":
