@@ -9,80 +9,40 @@ type ApiStatus = { user: string; status: TimeclockStatus; entry: TimeclockEntry 
 
 const LS_USER_KEY = "timeclock.user";
 
-const STATUS_LABEL: Record<TimeclockStatus, string> = {
-  notStarted: "未出勤",
-  working:    "勤務中",
-  onBreak:    "休憩中",
-  finished:   "退勤済",
-};
+/** 設計仕様 (案A) のフロー定義。サーバーの状態 + entry から導出する論理状態。 */
+type FlowKey = "idle" | "working" | "onBreak" | "workingAfter" | "finished";
 
-type Palette = {
-  /** ボタン本体グラデ(濃い→暗い) */
-  faceTop: string;
-  faceMid: string;
-  faceBot: string;
-  /** 沈んだ見た目で出る底面リム色(基本グラデの濃い色) */
-  rim: string;
-  /** 周囲の柔らかい光 */
-  glow: string;
-};
-
-type ButtonSpec = {
-  action: TimeclockAction;
+type FlowSpec = {
   label: string;
-  hint: string;
-  icon: "power" | "coffee" | "play" | "check";
-  palette: Palette;
+  sub: string;
+  variant: "v-clockin" | "v-break" | "v-resume" | "v-clockout";
+  icon: "power" | "coffee" | "play" | "moon";
+  next: FlowKey | null;
+  action: TimeclockAction | null;
 };
 
-const PALETTE_GREEN: Palette = {
-  faceTop: "#35d86d", faceMid: "#08a943", faceBot: "#058833",
-  rim: "#05712d",
-  glow: "rgba(0,180,80,0.28)",
-};
-const PALETTE_AMBER: Palette = {
-  faceTop: "#f7c66b", faceMid: "#dd9521", faceBot: "#b27410",
-  rim: "#7d4f08",
-  glow: "rgba(232,160,40,0.28)",
-};
-const PALETTE_BLUE: Palette = {
-  faceTop: "#7ec5ef", faceMid: "#3a92cf", faceBot: "#1e6fa6",
-  rim: "#114e76",
-  glow: "rgba(70,150,220,0.28)",
+const FLOW: Record<FlowKey, FlowSpec> = {
+  idle:         { label: "出勤", sub: "PRESS TO PUNCH IN", variant: "v-clockin",  icon: "power",  next: "working",      action: "punchIn" },
+  working:      { label: "休憩", sub: "START BREAK",       variant: "v-break",    icon: "coffee", next: "onBreak",      action: "breakStart" },
+  onBreak:      { label: "再開", sub: "RESUME WORK",       variant: "v-resume",   icon: "play",   next: "workingAfter", action: "breakEnd" },
+  workingAfter: { label: "退勤", sub: "PUNCH OUT",         variant: "v-clockout", icon: "moon",   next: "finished",     action: "punchOut" },
+  finished:     { label: "完了", sub: "SHIFT COMPLETE",    variant: "v-clockin",  icon: "power",  next: null,           action: null },
 };
 
-const PALETTE_DUSK: Palette = {
-  faceTop: "#7d8fd0", faceMid: "#4a5da3", faceBot: "#2d3a78",
-  rim: "#1c2552",
-  glow: "rgba(74,93,163,0.30)",
+const STATUS_LABEL: Record<FlowKey, string> = {
+  idle: "未出勤",
+  working: "勤務中",
+  onBreak: "休憩中",
+  workingAfter: "勤務中",
+  finished: "退勤済み",
 };
 
-const BUTTON_PUNCH_IN: ButtonSpec = {
-  action: "punchIn", label: "出勤", hint: "押して打刻",
-  icon: "power", palette: PALETTE_GREEN,
-};
-const BUTTON_BREAK_START: ButtonSpec = {
-  action: "breakStart", label: "休憩開始", hint: "押して打刻",
-  icon: "coffee", palette: PALETTE_AMBER,
-};
-const BUTTON_BREAK_END: ButtonSpec = {
-  action: "breakEnd", label: "休憩終了", hint: "押して打刻",
-  icon: "play", palette: PALETTE_BLUE,
-};
-const BUTTON_PUNCH_OUT: ButtonSpec = {
-  action: "punchOut", label: "退勤", hint: "押して打刻",
-  icon: "check", palette: PALETTE_DUSK,
-};
-
-function buttonFor(status: TimeclockStatus, entry: TimeclockEntry | null): ButtonSpec | null {
-  switch (status) {
-    case "notStarted": return BUTTON_PUNCH_IN;
-    case "onBreak":    return BUTTON_BREAK_END;
-    case "working":
-      // 休憩を既に取り終えていたら次は退勤
-      return entry?.breakEnd ? BUTTON_PUNCH_OUT : BUTTON_BREAK_START;
-    case "finished":   return null;
-  }
+function flowKey(status: TimeclockStatus, entry: TimeclockEntry | null): FlowKey {
+  if (status === "notStarted") return "idle";
+  if (status === "onBreak") return "onBreak";
+  if (status === "finished") return "finished";
+  // working: 既に休憩終了済なら退勤フェーズへ
+  return entry?.breakEnd ? "workingAfter" : "working";
 }
 
 export default function TimeclockPageWrapper() {
@@ -110,13 +70,14 @@ function TimeclockPage() {
     }
     return TIMECLOCK_USERS[0];
   });
+
   const [data, setData] = useState<ApiStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState<TimeclockAction | null>(null);
-  const [successAction, setSuccessAction] = useState<TimeclockAction | null>(null);
+  const [ripples, setRipples] = useState<{ id: number; x: number; y: number }[]>([]);
   const [now, setNow] = useState(new Date());
 
-  // ユーザー保存
+  // 永続化
   useEffect(() => {
     if (!user || lockUser) return;
     if (typeof window !== "undefined") window.localStorage.setItem(LS_USER_KEY, user);
@@ -128,7 +89,7 @@ function TimeclockPage() {
     return () => clearInterval(t);
   }, []);
 
-  // 状態取得(ユーザー切替時の stale response 対策に AbortController)
+  // 状態取得
   useEffect(() => {
     if (!user) return;
     const ac = new AbortController();
@@ -136,11 +97,7 @@ function TimeclockPage() {
       .then((r) => r.json())
       .then((d: ApiStatus & { error?: string }) => {
         if (ac.signal.aborted) return;
-        if (d.error) {
-          setError(d.error);
-          return;
-        }
-        // 念のため: レスポンスのユーザーが現在のユーザーと一致するもののみ反映
+        if (d.error) { setError(d.error); return; }
         if (d.user === user) {
           setData(d);
           setError(null);
@@ -154,17 +111,30 @@ function TimeclockPage() {
     return () => ac.abort();
   }, [user]);
 
-  // data が null、または現在のユーザーのものではない場合は読み込み中
   const loading = !data || data.user !== user;
   const status: TimeclockStatus = loading ? "notStarted" : data.status;
-  const button = loading ? null : buttonFor(status, data.entry);
-  // 既にボタンが退勤になっているとき、ゴーストの「退勤する」は重複なので非表示
-  const showGhostPunchOut = !loading && (
-    (status === "working" && !data.entry?.breakEnd) || status === "onBreak"
-  );
+  const entry = loading ? null : data.entry;
+  const fk: FlowKey = loading ? "idle" : flowKey(status, entry);
+  const cfg = FLOW[fk];
 
-  const submit = async (action: TimeclockAction) => {
-    if (pending || successAction) return; // 連打防止
+  const isActive = fk !== "idle" && fk !== "finished";
+
+  const submit = async (event: React.MouseEvent<HTMLButtonElement>) => {
+    if (!cfg.action || !cfg.next || pending) return;
+
+    // ripple from click position
+    const rect = event.currentTarget.getBoundingClientRect();
+    const x = (event.clientX || 0) - rect.left || rect.width / 2;
+    const y = (event.clientY || 0) - rect.top || rect.height / 2;
+    const id = Date.now();
+    setRipples((r) => [...r, { id, x, y }]);
+    window.setTimeout(() => setRipples((r) => r.filter((rp) => rp.id !== id)), 800);
+
+    if (typeof navigator !== "undefined" && "vibrate" in navigator) {
+      navigator.vibrate?.(20);
+    }
+
+    const action = cfg.action;
     setPending(action);
     setError(null);
     try {
@@ -175,12 +145,7 @@ function TimeclockPage() {
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? "打刻に失敗しました");
-      if (typeof window !== "undefined" && "vibrate" in navigator) {
-        navigator.vibrate?.(30);
-      }
       setData({ user, status: json.status, entry: json.entry });
-      setSuccessAction(action);
-      window.setTimeout(() => setSuccessAction(null), 1200);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       setError(msg);
@@ -190,427 +155,391 @@ function TimeclockPage() {
     }
   };
 
-  const greeting = useMemo(() => {
-    const h = now.getHours();
-    if (h < 10) return "おはようございます";
-    if (h < 17) return "こんにちは";
-    return "おつかれさまです";
+  const dateStr = useMemo(() => {
+    const days = ["日", "月", "火", "水", "木", "金", "土"];
+    return `${now.getFullYear()}年${now.getMonth() + 1}月${now.getDate()}日 (${days[now.getDay()]})`;
   }, [now]);
 
-  const dateLabel = useMemo(() => {
-    const d = new Date(now.getTime());
-    const wd = ["日", "月", "火", "水", "木", "金", "土"][d.getDay()];
-    return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日 (${wd})`;
-  }, [now]);
+  const hh = String(now.getHours()).padStart(2, "0");
+  const mm = String(now.getMinutes()).padStart(2, "0");
+  const ss = String(now.getSeconds()).padStart(2, "0");
 
-  const timeLabel = useMemo(() => {
-    const d = now;
-    return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-  }, [now]);
+  const logItems = [
+    { key: "in",         icon: "🌅", label: "出勤",     time: entry?.punchIn },
+    { key: "breakStart", icon: "☕", label: "休憩開始", time: entry?.breakStart },
+    { key: "breakEnd",   icon: "▶",  label: "休憩終了", time: entry?.breakEnd },
+    { key: "out",        icon: "🌙", label: "退勤",     time: entry?.punchOut },
+  ];
 
   return (
-    <div className="flex flex-col" data-page-shell style={{ height: "100vh", overflow: "hidden", background: "var(--bg)" }}>
-      {/* Topbar */}
-      <div className="flex items-center justify-between shrink-0" data-page-topbar
-        style={{ height: 60, padding: "0 28px", background: "var(--bg2)", borderBottom: "1px solid var(--border-subtle)" }}>
-        <div data-page-title style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: 18, fontWeight: 600, letterSpacing: "-0.02em" }}>
-          勤怠
-        </div>
-        {!lockUser && (
-          <select
-            value={user}
-            onChange={(e) => setUser(e.target.value)}
-            style={{
-              background: "var(--surface-hover)",
-              border: "1px solid var(--border-subtle)",
-              color: "var(--text)",
-              borderRadius: 8,
-              padding: "5px 12px",
-              fontSize: 13,
-              cursor: "pointer", outline: "none",
-            }}
-          >
-            {TIMECLOCK_USERS.map((u) => (
-              <option key={u} value={u}>{u}</option>
-            ))}
+    <div className="tc-root">
+      {!lockUser && (
+        <div className="tc-userswitch">
+          <select value={user} onChange={(e) => setUser(e.target.value)}>
+            {TIMECLOCK_USERS.map((u) => <option key={u} value={u}>{u}</option>)}
           </select>
-        )}
-      </div>
+        </div>
+      )}
 
-      <div data-page-content style={{ flex: 1, overflowY: "auto", padding: "28px 24px", display: "flex", flexDirection: "column", alignItems: "center", gap: 18, maxWidth: 520, width: "100%", margin: "0 auto" }}>
-        {error && (
-          <div style={{ alignSelf: "stretch", background: "rgba(220,38,38,0.12)", border: "1px solid rgba(220,38,38,0.25)", borderRadius: 8, padding: "10px 14px", fontSize: 13, color: "#fca5a5" }}>
-            ⚠️ {error}
-          </div>
-        )}
+      <div className="tc-app">
+        <div className="tc-name">{user} <span>さん</span></div>
+        <div className="tc-date">{dateStr}</div>
+        <div className="tc-clock">{hh}:{mm}:{ss}</div>
+        <div className={`tc-status-pill${isActive ? " active" : ""}`}>
+          <div className="tc-status-dot" />
+          {STATUS_LABEL[fk]}
+        </div>
 
-        <div style={{ alignSelf: "stretch", textAlign: "center" }}>
-          <div style={{ fontSize: 13, color: "var(--text-muted)" }}>{greeting}</div>
-          <div style={{ fontSize: 24, fontWeight: 600, marginTop: 4, letterSpacing: "-0.02em" }}>{user || "—"} さん</div>
-          <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 8, fontFamily: "'Space Grotesk', sans-serif" }}>{dateLabel}</div>
-          <div style={{ fontSize: 36, fontWeight: 600, fontFamily: "'Space Grotesk', sans-serif", letterSpacing: "-0.04em", marginTop: 2, color: "var(--text)" }}>
-            {timeLabel}
+        {error && <div className="tc-error">⚠️ {error}</div>}
+
+        <div className="tc-button-area">
+          <div className={`tc-btn-frame ${cfg.variant}`}>
+            <button
+              className={`tc-btn ${cfg.variant}`}
+              onClick={submit}
+              disabled={!cfg.next || pending !== null || loading}
+              aria-label={cfg.label}
+            >
+              <ButtonIcon kind={cfg.icon} />
+              <div className="tc-btn-label">{cfg.label}</div>
+              <div className="tc-btn-sub">{pending ? "SENDING…" : cfg.sub}</div>
+              {ripples.map((r) => (
+                <span
+                  key={r.id}
+                  className="tc-ripple"
+                  style={{ left: r.x - 50, top: r.y - 50, width: 100, height: 100 }}
+                />
+              ))}
+            </button>
           </div>
         </div>
 
-        {!loading && <StatusChip status={status} />}
-
-        {loading ? (
-          <LoadingCard />
-        ) : button ? (
-          <BigButton
-            spec={button}
-            disabled={pending !== null || successAction !== null}
-            pending={pending === button.action}
-            success={successAction === button.action}
-            onTap={() => submit(button.action)}
-          />
-        ) : (
-          <FinishedCard entry={data?.entry ?? null} />
-        )}
-
-        {showGhostPunchOut && (
-          <button
-            onClick={() => submit("punchOut")}
-            disabled={pending !== null || successAction !== null}
-            style={{
-              alignSelf: "stretch",
-              background: "transparent",
-              border: "1px solid var(--border-strong)",
-              color: "var(--text-muted)",
-              borderRadius: 12,
-              padding: "12px 16px",
-              fontSize: 14, fontWeight: 500,
-              cursor: pending ? "not-allowed" : "pointer",
-              transition: "all 0.15s",
-            }}
-            onMouseEnter={(e) => ((e.currentTarget as HTMLButtonElement).style.color = "var(--text)")}
-            onMouseLeave={(e) => ((e.currentTarget as HTMLButtonElement).style.color = "var(--text-muted)")}
-          >
-            退勤する
-          </button>
-        )}
-
-        <LogList entry={data?.entry ?? null} />
+        <div className="tc-log-section">
+          <div className="tc-log-label">本日のログ</div>
+          {logItems.map((x) => (
+            <div key={x.key} className={`tc-log-row${x.time ? " done" : ""}`}>
+              <div className="tc-log-icon">{x.icon}</div>
+              <div className="tc-log-text">{x.label}</div>
+              <div className="tc-log-time">{x.time ?? "—"}</div>
+            </div>
+          ))}
+        </div>
       </div>
 
+      <style>{`
+        .tc-root {
+          position: relative;
+          height: 100vh;
+          width: 100%;
+          background: radial-gradient(ellipse at 50% 30%, #0f1410 0%, #050805 100%);
+          color: #e8f0ea;
+          padding: 0;
+          overflow-y: auto;
+        }
+        .tc-userswitch {
+          position: absolute;
+          top: 16px; right: 16px;
+          z-index: 5;
+        }
+        .tc-userswitch select {
+          background: rgba(255,255,255,0.06);
+          border: 1px solid rgba(255,255,255,0.1);
+          color: #e8f0ea;
+          border-radius: 999px;
+          padding: 6px 14px;
+          font-size: 12px;
+          cursor: pointer;
+          outline: none;
+        }
+        .tc-app {
+          max-width: 480px;
+          margin: 0 auto;
+          padding: 32px 24px;
+          min-height: 100vh;
+          display: flex; flex-direction: column;
+          align-items: center;
+        }
+        .tc-name {
+          font-size: 20px; font-weight: 700;
+          letter-spacing: 0.02em;
+        }
+        .tc-name span {
+          font-weight: 400; opacity: 0.7;
+          font-size: 14px; margin-left: 4px;
+        }
+        .tc-date {
+          font-size: 13px; opacity: 0.55;
+          margin-top: 6px;
+        }
+        .tc-clock {
+          font-family: 'Space Grotesk', sans-serif;
+          font-size: 48px; font-weight: 600;
+          letter-spacing: -0.02em;
+          margin-top: 8px;
+          font-variant-numeric: tabular-nums;
+        }
+        .tc-status-pill {
+          display: inline-flex; align-items: center; gap: 6px;
+          padding: 6px 14px;
+          background: rgba(255,255,255,0.07);
+          border: 1px solid rgba(255,255,255,0.1);
+          border-radius: 999px;
+          font-size: 12px;
+          color: rgba(255,255,255,0.7);
+          margin-top: 16px;
+          transition: all 0.3s ease;
+        }
+        .tc-status-pill.active {
+          background: rgba(53,129,40,0.15);
+          border-color: rgba(94,194,80,0.4);
+          color: #9be388;
+        }
+        .tc-status-dot {
+          width: 7px; height: 7px;
+          border-radius: 50%;
+          background: #888;
+          transition: all 0.3s ease;
+        }
+        .tc-status-pill.active .tc-status-dot {
+          background: #5fc24f;
+          box-shadow: 0 0 8px #5fc24f;
+          animation: tcLivePulse 1.6s ease-in-out infinite;
+        }
+        @keyframes tcLivePulse {
+          0%,100% { opacity: 1; }
+          50%     { opacity: 0.5; }
+        }
+
+        .tc-error {
+          margin-top: 14px;
+          background: rgba(220,38,38,0.12);
+          border: 1px solid rgba(220,38,38,0.3);
+          color: #fca5a5;
+          padding: 8px 14px;
+          border-radius: 12px;
+          font-size: 12px;
+          max-width: 360px;
+          text-align: center;
+        }
+
+        .tc-button-area {
+          flex: 1;
+          display: flex; align-items: center; justify-content: center;
+          width: 100%;
+          padding: 36px 0;
+          min-height: 360px;
+        }
+        .tc-btn-frame {
+          width: 300px; height: 300px;
+          border-radius: 50%;
+          background: radial-gradient(circle at 50% 40%, #1a201d 0%, #0a0d0b 70%, #050605 100%);
+          box-shadow:
+            inset 0 4px 8px rgba(0,0,0,0.8),
+            inset 0 -2px 4px rgba(255,255,255,0.04),
+            0 30px 60px rgba(0,0,0,0.6);
+          display: flex; align-items: center; justify-content: center;
+          position: relative;
+        }
+        .tc-btn-frame::before {
+          content: '';
+          position: absolute;
+          inset: 14px;
+          border-radius: 50%;
+          border: 1px solid rgba(255,255,255,0.04);
+          background: conic-gradient(from 0deg,
+            var(--glow-c, rgba(53,129,40,0)) 0deg,
+            var(--glow-c2, rgba(53,129,40,0.15)) 90deg,
+            var(--glow-c3, rgba(53,129,40,0.4)) 180deg,
+            var(--glow-c2, rgba(53,129,40,0.15)) 270deg,
+            var(--glow-c, rgba(53,129,40,0)) 360deg);
+          filter: blur(6px);
+          animation: tcRotateGlow 8s linear infinite;
+          transition: opacity 0.4s ease;
+          pointer-events: none;
+        }
+        @keyframes tcRotateGlow { to { transform: rotate(360deg); } }
+
+        .tc-btn {
+          width: 240px; height: 240px;
+          border-radius: 50%;
+          border: none;
+          cursor: pointer;
+          background: var(--btn-bg);
+          position: relative;
+          box-shadow:
+            0 16px 0 var(--btn-shadow1),
+            0 18px 0 var(--btn-shadow2),
+            0 24px 30px rgba(0,0,0,0.7),
+            inset 0 6px 12px rgba(255,255,255,0.4),
+            inset 0 -10px 20px rgba(0,0,0,0.4);
+          display: flex; flex-direction: column;
+          align-items: center; justify-content: center;
+          gap: 10px;
+          transition: all 0.08s ease-out;
+          color: #fff;
+          text-shadow: 0 2px 4px rgba(0,0,0,0.4);
+          -webkit-tap-highlight-color: transparent;
+          overflow: hidden;
+        }
+        .tc-btn::before {
+          content: '';
+          position: absolute;
+          top: 14px; left: 36px;
+          width: 90px; height: 32px;
+          background: radial-gradient(ellipse, rgba(255,255,255,0.5), transparent 70%);
+          border-radius: 50%;
+          pointer-events: none;
+        }
+        .tc-btn::after {
+          content: '';
+          position: absolute;
+          inset: 10px;
+          border-radius: 50%;
+          border: 2px solid rgba(255,255,255,0.15);
+          pointer-events: none;
+        }
+        .tc-btn:active:not(:disabled),
+        .tc-btn.pressed {
+          transform: translateY(14px);
+          box-shadow:
+            0 2px 0 var(--btn-shadow1),
+            0 4px 0 var(--btn-shadow2),
+            0 6px 8px rgba(0,0,0,0.6),
+            inset 0 4px 8px rgba(0,0,0,0.3),
+            inset 0 -2px 4px rgba(255,255,255,0.2);
+        }
+        .tc-btn:disabled { cursor: default; }
+        .tc-btn-label {
+          font-size: 36px; font-weight: 900;
+          letter-spacing: 0.15em;
+          line-height: 1;
+        }
+        .tc-btn-sub {
+          font-family: 'Space Grotesk', sans-serif;
+          font-size: 11px; opacity: 0.85;
+          letter-spacing: 0.3em;
+          font-weight: 500;
+        }
+
+        .v-clockin {
+          --btn-bg: radial-gradient(circle at 35% 30%, #5fc24f 0%, #3a9c2c 35%, #1f6e15 75%, #0e4a07 100%);
+          --btn-shadow1: #0a3805;
+          --btn-shadow2: #051f02;
+          --glow-c:  rgba(53,129,40,0);
+          --glow-c2: rgba(53,129,40,0.15);
+          --glow-c3: rgba(53,129,40,0.5);
+        }
+        .v-break {
+          --btn-bg: radial-gradient(circle at 35% 30%, #f0c455 0%, #d4a128 35%, #966e10 75%, #5e4407 100%);
+          --btn-shadow1: #3a2a05;
+          --btn-shadow2: #1f1602;
+          --glow-c:  rgba(208,160,40,0);
+          --glow-c2: rgba(208,160,40,0.15);
+          --glow-c3: rgba(208,160,40,0.5);
+        }
+        .v-resume {
+          --btn-bg: radial-gradient(circle at 35% 30%, #6dc8d6 0%, #3a9caa 35%, #1f6e7a 75%, #0e4a52 100%);
+          --btn-shadow1: #053838;
+          --btn-shadow2: #021f1f;
+          --glow-c:  rgba(40,160,180,0);
+          --glow-c2: rgba(40,160,180,0.15);
+          --glow-c3: rgba(40,160,180,0.5);
+        }
+        .v-clockout {
+          --btn-bg: radial-gradient(circle at 35% 30%, #d66d6d 0%, #aa3a3a 35%, #7a1f1f 75%, #520e0e 100%);
+          --btn-shadow1: #380505;
+          --btn-shadow2: #1f0202;
+          --glow-c:  rgba(180,40,40,0);
+          --glow-c2: rgba(180,40,40,0.15);
+          --glow-c3: rgba(180,40,40,0.5);
+        }
+
+        .tc-log-section { width: 100%; margin-top: 8px; max-width: 432px; }
+        .tc-log-label {
+          font-size: 11px;
+          color: rgba(255,255,255,0.4);
+          letter-spacing: 0.15em;
+          text-transform: uppercase;
+          margin-bottom: 10px;
+          padding-left: 4px;
+          font-family: 'Space Grotesk', sans-serif;
+        }
+        .tc-log-row {
+          display: flex; align-items: center;
+          padding: 12px 16px;
+          border-radius: 14px;
+          background: rgba(255,255,255,0.04);
+          border: 1px solid rgba(255,255,255,0.06);
+          margin-bottom: 6px;
+          font-size: 14px;
+          transition: all 0.2s ease;
+        }
+        .tc-log-row.done {
+          background: rgba(53,129,40,0.08);
+          border-color: rgba(94,194,80,0.2);
+        }
+        .tc-log-icon { font-size: 18px; margin-right: 12px; width: 24px; text-align: center; }
+        .tc-log-text { flex: 1; font-weight: 500; }
+        .tc-log-time {
+          font-family: 'Space Grotesk', sans-serif;
+          font-size: 13px;
+          opacity: 0.6;
+          font-variant-numeric: tabular-nums;
+        }
+        .tc-log-row.done .tc-log-time { opacity: 1; color: #9be388; font-weight: 600; }
+
+        .tc-ripple {
+          position: absolute;
+          border-radius: 50%;
+          background: radial-gradient(circle, rgba(255,255,255,0.6), transparent 70%);
+          pointer-events: none;
+          animation: tcRippleOut 0.8s ease-out forwards;
+        }
+        @keyframes tcRippleOut {
+          0%   { transform: scale(0);   opacity: 0.7; }
+          100% { transform: scale(3);   opacity: 0;   }
+        }
+      `}</style>
     </div>
   );
 }
 
-function pad(n: number): string {
-  return String(n).padStart(2, "0");
-}
-
-function StatusChip({ status }: { status: TimeclockStatus }) {
-  const colors: Record<TimeclockStatus, { dot: string; bg: string; text: string }> = {
-    notStarted: { dot: "var(--text-dim)",   bg: "var(--surface-hover)",          text: "var(--text-muted)" },
-    working:    { dot: "var(--green-bright)", bg: "rgba(72,199,116,0.10)",        text: "var(--green-bright)" },
-    onBreak:    { dot: "oklch(0.74 0.16 68)", bg: "rgba(244,177,84,0.10)",       text: "oklch(0.86 0.16 68)" },
-    finished:   { dot: "rgba(110,177,222,0.8)", bg: "rgba(110,177,222,0.10)",    text: "oklch(0.85 0.10 215)" },
+function ButtonIcon({ kind }: { kind: FlowSpec["icon"] }) {
+  const common = {
+    width: 56, height: 56, viewBox: "0 0 24 24", fill: "none" as const,
+    stroke: "currentColor" as const,
+    strokeWidth: 2.4 as const,
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const,
   };
-  const c = colors[status];
-  return (
-    <div className="flex items-center" style={{ gap: 8, background: c.bg, padding: "6px 14px", borderRadius: 999, fontSize: 12, fontWeight: 500, color: c.text, letterSpacing: "0.04em" }}>
-      <span style={{
-        width: 8, height: 8, borderRadius: "50%", background: c.dot,
-        animation: status === "working" || status === "onBreak" ? "pulseDot 2s ease-in-out infinite" : undefined,
-      }} />
-      {STATUS_LABEL[status]}
-      <style>{`@keyframes pulseDot { 0%,100% { opacity: 1 } 50% { opacity: 0.4 } }`}</style>
-    </div>
-  );
-}
-
-function ButtonIcon({ kind, size = 56 }: { kind: ButtonSpec["icon"]; size?: number }) {
-  const s = size;
-  const stroke = "rgba(255,255,255,0.95)";
   switch (kind) {
     case "power":
       return (
-        <svg width={s} height={s} viewBox="0 0 64 64" fill="none">
-          <path d="M22 15 A20 20 0 1 0 42 15" stroke={stroke} strokeWidth="4.5" strokeLinecap="round" />
-          <line x1="32" y1="8" x2="32" y2="32" stroke={stroke} strokeWidth="4.5" strokeLinecap="round" />
+        <svg {...common} style={{ filter: "drop-shadow(0 2px 3px rgba(0,0,0,0.4))" }}>
+          <path d="M12 2v10" />
+          <path d="M18.4 6.6a9 9 0 1 1-12.8 0" />
         </svg>
       );
     case "coffee":
       return (
-        <svg width={s} height={s} viewBox="0 0 64 64" fill="none">
-          <path d="M14 24 H44 V42 A10 10 0 0 1 34 52 H24 A10 10 0 0 1 14 42 Z"
-                stroke={stroke} strokeWidth="4" strokeLinejoin="round" />
-          <path d="M44 28 H50 A6 6 0 0 1 50 40 H44" stroke={stroke} strokeWidth="4" strokeLinecap="round" />
-          <path d="M22 12 C22 16 26 16 26 20 M30 12 C30 16 34 16 34 20"
-                stroke={stroke} strokeWidth="3.5" strokeLinecap="round" />
+        <svg {...common} style={{ filter: "drop-shadow(0 2px 3px rgba(0,0,0,0.4))" }}>
+          <path d="M17 8h1a4 4 0 1 1 0 8h-1" />
+          <path d="M3 8h14v9a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V8z" />
+          <path d="M6 2v3M10 2v3M14 2v3" />
         </svg>
       );
     case "play":
       return (
-        <svg width={s} height={s} viewBox="0 0 64 64" fill="none">
-          <path d="M22 14 L48 32 L22 50 Z" fill={stroke} />
+        <svg width={56} height={56} viewBox="0 0 24 24" fill="currentColor"
+          style={{ filter: "drop-shadow(0 2px 3px rgba(0,0,0,0.4))" }}>
+          <path d="M7 4l14 8-14 8V4z" />
         </svg>
       );
-    case "check":
+    case "moon":
       return (
-        <svg width={s} height={s} viewBox="0 0 64 64" fill="none">
-          <path d="M14 33 L27 46 L50 19" stroke={stroke} strokeWidth="6" strokeLinecap="round" strokeLinejoin="round" />
+        <svg {...common} style={{ filter: "drop-shadow(0 2px 3px rgba(0,0,0,0.4))" }}>
+          <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" />
         </svg>
       );
   }
 }
-
-const SUCCESS_LABEL: Record<TimeclockAction, string> = {
-  punchIn:    "出勤しました",
-  breakStart: "休憩に入りました",
-  breakEnd:   "休憩終了",
-  punchOut:   "退勤しました",
-};
-
-function BigButton({ spec, disabled, pending, success, onTap }: {
-  spec: ButtonSpec; disabled: boolean; pending: boolean; success: boolean; onTap: () => void;
-}) {
-  const p = spec.palette;
-  return (
-    <div
-      style={{
-        alignSelf: "stretch",
-        padding: 10,
-        borderRadius: 36,
-        background: `
-          radial-gradient(circle at 50% 20%, rgba(255,255,255,0.08), transparent 36%),
-          linear-gradient(180deg, #07100b, #020604)
-        `,
-        boxShadow: `
-          inset 0 8px 18px rgba(255,255,255,0.04),
-          inset 0 -14px 28px rgba(0,0,0,0.7),
-          0 24px 60px rgba(0,0,0,0.55)
-        `,
-      }}
-    >
-      <button
-        onClick={onTap}
-        disabled={disabled}
-        className={`tc-big-btn ${success ? "tc-big-btn--success" : ""}`}
-        style={{
-          position: "relative",
-          width: "100%",
-          height: 260,
-          border: 0,
-          borderRadius: 30,
-          color: "#fff",
-          cursor: disabled ? "default" : "pointer",
-          opacity: disabled && !pending && !success ? 0.85 : 1,
-          background: `
-            linear-gradient(180deg, rgba(255,255,255,0.20), transparent 38%),
-            linear-gradient(145deg, ${p.faceTop}, ${p.faceMid} 70%, ${p.faceBot})
-          `,
-          boxShadow: success
-            ? `0 4px 0 ${p.rim}, 0 12px 24px ${p.glow}, inset 0 4px 16px rgba(0,0,0,0.24)`
-            : `0 12px 0 ${p.rim}, 0 26px 46px ${p.glow}, inset 0 1px 0 rgba(255,255,255,0.35), inset 0 -10px 20px rgba(0,0,0,0.22)`,
-          transform: success ? "translateY(8px)" : "translateY(0)",
-          filter: success ? "brightness(0.96)" : undefined,
-          transition: "transform .12s ease, box-shadow .12s ease, filter .15s ease",
-          overflow: "hidden",
-          display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-          gap: 14,
-        }}
-        aria-live="polite"
-      >
-        <ButtonIcon kind={success ? "check" : spec.icon} />
-        <div style={{
-          fontSize: 36, fontWeight: 800, letterSpacing: "0.08em",
-          textShadow: "0 2px 4px rgba(0,0,0,0.25)",
-        }}>
-          {success ? SUCCESS_LABEL[spec.action] : pending ? "送信中…" : spec.label}
-        </div>
-        <div style={{ fontSize: 12, letterSpacing: "0.18em", opacity: 0.85 }}>
-          {success ? "記録しました" : spec.hint}
-        </div>
-        {pending && (
-          <span className="tc-ripple" style={{
-            position: "absolute", inset: 0, pointerEvents: "none",
-            background: "radial-gradient(circle at 50% 50%, rgba(255,255,255,0.5), transparent 60%)",
-            opacity: 0,
-          }} />
-        )}
-        {success && (
-          <span style={{
-            position: "absolute", inset: 0, pointerEvents: "none",
-            borderRadius: 30,
-            background: "radial-gradient(circle at 50% 50%, rgba(255,255,255,0.55), transparent 60%)",
-            animation: "tc-flash 0.6s ease-out forwards",
-          }} />
-        )}
-      </button>
-      <style>{`
-        .tc-big-btn:active:not(:disabled) {
-          transform: translateY(8px);
-          box-shadow:
-            0 4px 0 ${p.rim},
-            0 12px 24px ${p.glow},
-            inset 0 4px 16px rgba(0,0,0,0.24) !important;
-          filter: brightness(0.96);
-        }
-        .tc-big-btn:active::after {
-          content: "";
-          position: absolute;
-          inset: 0;
-          border-radius: 30px;
-          background: radial-gradient(circle at 50% 50%, rgba(255,255,255,0.45), transparent 55%);
-          animation: tc-flash 0.4s ease-out forwards;
-          pointer-events: none;
-        }
-        @keyframes tc-flash {
-          0% { opacity: 0; transform: scale(0.6); }
-          40% { opacity: 1; }
-          100% { opacity: 0; transform: scale(1.1); }
-        }
-        .tc-ripple {
-          animation: tc-ripple-pulse 1.2s ease-out infinite;
-        }
-        @keyframes tc-ripple-pulse {
-          0% { opacity: 0; transform: scale(0.7); }
-          50% { opacity: 1; }
-          100% { opacity: 0; transform: scale(1.2); }
-        }
-      `}</style>
-    </div>
-  );
-}
-
-function LoadingCard() {
-  return (
-    <div style={{
-      alignSelf: "stretch",
-      padding: 10,
-      borderRadius: 36,
-      background: `
-        radial-gradient(circle at 50% 20%, rgba(255,255,255,0.06), transparent 36%),
-        linear-gradient(180deg, #07100b, #020604)
-      `,
-      boxShadow: `
-        inset 0 8px 18px rgba(255,255,255,0.04),
-        inset 0 -14px 28px rgba(0,0,0,0.7),
-        0 24px 60px rgba(0,0,0,0.55)
-      `,
-    }}>
-      <div style={{
-        width: "100%", height: 260, borderRadius: 30,
-        background: "linear-gradient(145deg, rgba(255,255,255,0.04), rgba(255,255,255,0.01))",
-        display: "flex", alignItems: "center", justifyContent: "center",
-        animation: "tc-loading 1.6s ease-in-out infinite",
-      }}>
-        <div style={{
-          width: 44, height: 44, borderRadius: "50%",
-          border: "3px solid rgba(255,255,255,0.08)",
-          borderTopColor: "rgba(255,255,255,0.4)",
-          animation: "spin 0.9s linear infinite",
-        }} />
-      </div>
-      <style>{`
-        @keyframes tc-loading { 0%,100% { opacity: 0.6 } 50% { opacity: 1 } }
-        @keyframes spin { to { transform: rotate(360deg) } }
-      `}</style>
-    </div>
-  );
-}
-
-function FinishedCard({ entry }: { entry: TimeclockEntry | null }) {
-  const worked = entry?.workedHours ?? 0;
-  const breakH = entry?.breakHours ?? 0;
-  return (
-    <div style={{
-      alignSelf: "stretch",
-      padding: 10,
-      borderRadius: 36,
-      background: `
-        radial-gradient(circle at 50% 20%, rgba(255,255,255,0.06), transparent 36%),
-        linear-gradient(180deg, #07100b, #020604)
-      `,
-      boxShadow: `
-        inset 0 8px 18px rgba(255,255,255,0.04),
-        inset 0 -14px 28px rgba(0,0,0,0.7),
-        0 24px 60px rgba(0,0,0,0.55)
-      `,
-    }}>
-      <div style={{
-        position: "relative",
-        width: "100%",
-        height: 260,
-        borderRadius: 30,
-        background: `
-          linear-gradient(180deg, rgba(255,255,255,0.10), transparent 38%),
-          linear-gradient(145deg, #2a3a32, #1d2a24 70%, #15201b)
-        `,
-        boxShadow: `
-          0 4px 0 #0c1612,
-          inset 0 1px 0 rgba(255,255,255,0.12),
-          inset 0 -10px 20px rgba(0,0,0,0.4)
-        `,
-        color: "rgba(232,240,234,0.9)",
-        display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-        gap: 12, textAlign: "center",
-      }}>
-        <ButtonIcon kind="check" size={56} />
-        <div style={{ fontSize: 30, fontWeight: 800, letterSpacing: "0.08em" }}>退勤済み</div>
-        <div style={{ fontSize: 12, letterSpacing: "0.18em", opacity: 0.7 }}>おつかれさまでした</div>
-        <div style={{
-          marginTop: 4, padding: "8px 16px",
-          background: "rgba(0,0,0,0.25)", borderRadius: 999,
-          fontFamily: "'Space Grotesk', sans-serif", fontSize: 13,
-        }}>
-          実働 <span style={{ color: "var(--green-bright)", fontWeight: 700 }}>{fmtHM(worked)}</span>
-          <span style={{ opacity: 0.4, margin: "0 8px" }}>/</span>
-          休憩 <span style={{ color: "oklch(0.86 0.16 68)", fontWeight: 700 }}>{fmtHM(breakH)}</span>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function LogList({ entry }: { entry: TimeclockEntry | null }) {
-  const items = [
-    { icon: "🌅", label: "出勤",   value: entry?.punchIn },
-    { icon: "☕", label: "休憩開始", value: entry?.breakStart },
-    { icon: "▶︎", label: "休憩終了", value: entry?.breakEnd },
-    { icon: "🌙", label: "退勤",   value: entry?.punchOut },
-  ];
-  return (
-    <div style={{ alignSelf: "stretch", marginTop: 6 }}>
-      <div style={{ fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--text-dim)", marginBottom: 10 }}>
-        本日のログ
-      </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-        {items.map((it) => (
-          <div key={it.label} className="flex items-center justify-between"
-            style={{ background: "var(--surface)", border: "1px solid var(--border-subtle)", borderRadius: 10, padding: "10px 14px" }}>
-            <div className="flex items-center" style={{ gap: 10 }}>
-              <span style={{ fontSize: 16 }}>{it.icon}</span>
-              <span style={{ fontSize: 13, color: "var(--text-muted)" }}>{it.label}</span>
-            </div>
-            <span style={{
-              fontFamily: "'Space Grotesk', sans-serif", fontSize: 16, fontWeight: 600,
-              color: it.value ? "var(--text)" : "var(--text-dim)", letterSpacing: "-0.02em",
-            }}>
-              {it.value ?? "—"}
-            </span>
-          </div>
-        ))}
-        {entry && (
-          <div className="flex items-center justify-between"
-            style={{ marginTop: 4, padding: "10px 14px", fontSize: 12, color: "var(--text-muted)" }}>
-            <span>実働 {fmtHM(entry.workedHours ?? 0)}</span>
-            <span>休憩 {fmtHM(entry.breakHours ?? 0)}</span>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function fmtHM(hours: number): string {
-  if (!hours) return "0:00";
-  const h = Math.floor(hours);
-  const m = Math.round((hours - h) * 60);
-  return `${h}:${pad(m)}`;
-}
-
