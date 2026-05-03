@@ -2,26 +2,50 @@ import { google } from "googleapis";
 import { getWriteAuth, getSpreadsheetId } from "./googleSheets";
 
 const SHEET_NAME = "勤怠";
+
+/**
+ * 勤怠シートの列順:
+ *  A 日付 / B 名前 / C 出勤
+ *  D 休憩1開始 / E 休憩1終了
+ *  F 休憩2開始 / G 休憩2終了
+ *  H 休憩3開始 / I 休憩3終了
+ *  J 退勤 / K 実働(h) / L 休憩(h) / M 備考
+ */
 const HEADERS = [
-  "日付", "名前", "出勤", "休憩開始", "休憩終了", "退勤",
-  "実働(h)", "休憩(h)", "備考",
+  "日付", "名前", "出勤",
+  "休憩1開始", "休憩1終了",
+  "休憩2開始", "休憩2終了",
+  "休憩3開始", "休憩3終了",
+  "退勤", "実働(h)", "休憩(h)", "備考",
 ] as const;
+const COL_COUNT = HEADERS.length;
+const LAST_COL_LETTER = "M"; // A..M = 13 列
+const MAX_BREAKS = 3;
+
+const COL = {
+  date: 0, user: 1, punchIn: 2,
+  break1Start: 3, break1End: 4,
+  break2Start: 5, break2End: 6,
+  break3Start: 7, break3End: 8,
+  punchOut: 9, workedH: 10, breakH: 11, note: 12,
+} as const;
 
 export type TimeclockAction = "punchIn" | "breakStart" | "breakEnd" | "punchOut";
 
 export type TimeclockStatus =
-  | "notStarted"   // 未出勤
-  | "working"      // 勤務中
-  | "onBreak"      // 休憩中
-  | "finished";    // 退勤済
+  | "notStarted"
+  | "working"
+  | "onBreak"
+  | "finished";
+
+export type BreakSlot = { start: string | null; end: string | null };
 
 export type TimeclockEntry = {
-  date: string;          // YYYY-MM-DD
+  date: string;
   user: string;
-  punchIn: string | null;     // HH:mm
-  breakStart: string | null;
-  breakEnd: string | null;
+  punchIn: string | null;
   punchOut: string | null;
+  breaks: BreakSlot[];          // 長さ MAX_BREAKS, 未使用は { start: null, end: null }
   workedHours: number | null;
   breakHours: number | null;
   note: string;
@@ -29,7 +53,6 @@ export type TimeclockEntry = {
 
 export function getTodayJst(): string {
   const now = new Date();
-  // JST = UTC+9
   const jst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
   return jst.toISOString().slice(0, 10);
 }
@@ -47,7 +70,6 @@ function diffHours(start: string, end: string): number {
   return Math.max(0, minutes / 60);
 }
 
-/** Sheets が日付セルを "YYYY/M/D" に整形して返してくることがあるので "YYYY-MM-DD" に正規化 */
 function normalizeDateCell(v: string | undefined): string {
   if (!v) return "";
   if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
@@ -56,10 +78,8 @@ function normalizeDateCell(v: string | undefined): string {
   return v;
 }
 
-/** "8:12:00" / "08:12" / "8:12 AM" など → "HH:mm" に整形 */
 function normalizeTimeCell(v: string | undefined): string | null {
   if (!v) return null;
-  // 時刻 "HH:mm" / "H:mm"
   const m = v.match(/^(\d{1,2}):(\d{1,2})(?::\d{1,2})?\s*(AM|PM)?$/i);
   if (m) {
     let h = parseInt(m[1], 10);
@@ -72,45 +92,94 @@ function normalizeTimeCell(v: string | undefined): string | null {
   return v;
 }
 
-function rowToEntry(row: string[]): TimeclockEntry {
+/** 行配列(可変長)を 13 列に整える */
+function padRow(row: string[]): string[] {
+  const out = row.slice(0, COL_COUNT);
+  while (out.length < COL_COUNT) out.push("");
+  return out;
+}
+
+function rowToEntry(rawRow: string[]): TimeclockEntry {
+  const row = padRow(rawRow);
+  const breaks: BreakSlot[] = [
+    { start: normalizeTimeCell(row[COL.break1Start]), end: normalizeTimeCell(row[COL.break1End]) },
+    { start: normalizeTimeCell(row[COL.break2Start]), end: normalizeTimeCell(row[COL.break2End]) },
+    { start: normalizeTimeCell(row[COL.break3Start]), end: normalizeTimeCell(row[COL.break3End]) },
+  ];
   return {
-    date: normalizeDateCell(row[0]),
-    user: row[1] || "",
-    punchIn:    normalizeTimeCell(row[2]),
-    breakStart: normalizeTimeCell(row[3]),
-    breakEnd:   normalizeTimeCell(row[4]),
-    punchOut:   normalizeTimeCell(row[5]),
-    workedHours: row[6] ? parseFloat(row[6]) : null,
-    breakHours: row[7] ? parseFloat(row[7]) : null,
-    note: row[8] || "",
+    date: normalizeDateCell(row[COL.date]),
+    user: row[COL.user] || "",
+    punchIn: normalizeTimeCell(row[COL.punchIn]),
+    punchOut: normalizeTimeCell(row[COL.punchOut]),
+    breaks,
+    workedHours: row[COL.workedH] ? parseFloat(row[COL.workedH]) : null,
+    breakHours: row[COL.breakH] ? parseFloat(row[COL.breakH]) : null,
+    note: row[COL.note] || "",
   };
+}
+
+/** 「最後にスタートした未終了休憩」のスロット番号(0..2)。なければ -1。 */
+function activeBreakIndex(breaks: BreakSlot[]): number {
+  for (let i = breaks.length - 1; i >= 0; i--) {
+    if (breaks[i].start && !breaks[i].end) return i;
+  }
+  return -1;
+}
+
+/** 次に使える空のスタートスロット番号(0..2)。空きがなければ -1。 */
+function nextEmptyBreakIndex(breaks: BreakSlot[]): number {
+  return breaks.findIndex((b) => !b.start);
 }
 
 export function statusFromEntry(e: TimeclockEntry | null): TimeclockStatus {
   if (!e || !e.punchIn) return "notStarted";
   if (e.punchOut) return "finished";
-  if (e.breakStart && !e.breakEnd) return "onBreak";
+  if (activeBreakIndex(e.breaks) >= 0) return "onBreak";
   return "working";
 }
 
+/**
+ * 勤怠シートの存在確認。無ければ作成、ヘッダーが旧フォーマットなら **clear → 再生成**。
+ * (ユーザー合意済み: 既存データを初期化して再構成して良い)
+ */
 async function ensureSheet(sheets: ReturnType<typeof google.sheets>) {
   const spreadsheetId = getSpreadsheetId();
   const meta = await sheets.spreadsheets.get({ spreadsheetId });
   const exists = meta.data.sheets?.some((s) => s.properties?.title === SHEET_NAME);
-  if (exists) return;
+  if (!exists) {
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId,
+      requestBody: { requests: [{ addSheet: { properties: { title: SHEET_NAME } } }] },
+    });
+    await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: `${SHEET_NAME}!A1`,
+      valueInputOption: "RAW",
+      requestBody: { values: [HEADERS as unknown as string[]] },
+    });
+    return;
+  }
 
-  await sheets.spreadsheets.batchUpdate({
+  // 既存ヘッダーをチェック
+  const headerRes = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    requestBody: {
-      requests: [{ addSheet: { properties: { title: SHEET_NAME } } }],
-    },
+    range: `${SHEET_NAME}!A1:M1`,
   });
-  await sheets.spreadsheets.values.update({
-    spreadsheetId,
-    range: `${SHEET_NAME}!A1`,
-    valueInputOption: "RAW",
-    requestBody: { values: [HEADERS as unknown as string[]] },
-  });
+  const got = (headerRes.data.values?.[0] ?? []) as string[];
+  const matches = HEADERS.every((h, i) => got[i] === h);
+  if (!matches) {
+    // 全体クリア → ヘッダー再書き込み(旧データ破棄)
+    await sheets.spreadsheets.values.clear({
+      spreadsheetId,
+      range: SHEET_NAME,
+    });
+    await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: `${SHEET_NAME}!A1`,
+      valueInputOption: "RAW",
+      requestBody: { values: [HEADERS as unknown as string[]] },
+    });
+  }
 }
 
 async function readAllRows(): Promise<string[][]> {
@@ -122,18 +191,18 @@ async function readAllRows(): Promise<string[][]> {
     range: SHEET_NAME,
   });
   const values = (res.data.values as string[][]) || [];
-  return values.length > 0 ? values.slice(1) : []; // ヘッダー除外
+  return values.length > 0 ? values.slice(1) : [];
 }
 
 export async function getTodayEntry(user: string, date?: string): Promise<TimeclockEntry | null> {
   const targetDate = date ?? getTodayJst();
   const rows = await readAllRows();
-  const found = rows.find((r) => normalizeDateCell(r[0]) === targetDate && r[1] === user);
+  const found = rows.find((r) => normalizeDateCell(r[COL.date]) === targetDate && r[COL.user] === user);
   return found ? rowToEntry(found) : null;
 }
 
 export async function listEntries(opts: {
-  from?: string;   // YYYY-MM-DD
+  from?: string;
   to?: string;
   user?: string;
 }): Promise<TimeclockEntry[]> {
@@ -150,16 +219,21 @@ export async function listEntries(opts: {
     .sort((a, b) => (a.date === b.date ? a.user.localeCompare(b.user) : b.date.localeCompare(a.date)));
 }
 
-/** 当日行のインデックスを返す。なければ -1。 */
 async function findRowIndex(user: string, date: string): Promise<{ index: number; rows: string[][] }> {
   const rows = await readAllRows();
-  const idx = rows.findIndex((r) => normalizeDateCell(r[0]) === date && r[1] === user);
+  const idx = rows.findIndex((r) => normalizeDateCell(r[COL.date]) === date && r[COL.user] === user);
   return { index: idx, rows };
 }
 
-/** 指定行を A 列基準の絶対行番号(1-based、ヘッダー込み)にする。 */
 function toSheetRow(zeroBasedIndex: number): number {
-  return zeroBasedIndex + 2; // +1 for header, +1 for 1-based
+  return zeroBasedIndex + 2;
+}
+
+function totalBreakHours(breaks: BreakSlot[]): number {
+  return breaks.reduce((sum, b) => {
+    if (b.start && b.end) return sum + diffHours(b.start, b.end);
+    return sum;
+  }, 0);
 }
 
 export type PunchResult = {
@@ -177,60 +251,74 @@ export async function punch(user: string, action: TimeclockAction): Promise<Punc
   const time = getNowHmJst();
   const { index, rows } = await findRowIndex(user, date);
 
-  // 既存の値 or 空配列
   const current: string[] = index >= 0
-    ? [...rows[index], "", "", "", "", "", "", "", "", ""].slice(0, 9)
-    : [date, user, "", "", "", "", "", "", ""];
+    ? padRow(rows[index])
+    : (() => {
+        const r = new Array<string>(COL_COUNT).fill("");
+        r[COL.date] = date;
+        r[COL.user] = user;
+        return r;
+      })();
 
-  const status = statusFromEntry(rowToEntry(current));
+  const entryNow = rowToEntry(current);
+  const status = statusFromEntry(entryNow);
 
-  // バリデーション
   switch (action) {
     case "punchIn":
       if (status !== "notStarted") {
         throw new Error(`既に出勤しています (現在: ${labelOf(status)})`);
       }
-      current[2] = time;
+      current[COL.punchIn] = time;
       break;
-    case "breakStart":
+    case "breakStart": {
       if (status !== "working") {
         throw new Error(`勤務中ではないため休憩開始できません (現在: ${labelOf(status)})`);
       }
-      if (current[3]) {
-        throw new Error("本日は既に休憩を取得済みです");
+      const slot = nextEmptyBreakIndex(entryNow.breaks);
+      if (slot < 0) {
+        throw new Error(`本日は休憩を ${MAX_BREAKS} 回取得済みのため、これ以上休憩できません`);
       }
-      current[3] = time;
+      const startCol = [COL.break1Start, COL.break2Start, COL.break3Start][slot];
+      current[startCol] = time;
       break;
-    case "breakEnd":
+    }
+    case "breakEnd": {
       if (status !== "onBreak") {
         throw new Error(`休憩中ではないため休憩終了できません (現在: ${labelOf(status)})`);
       }
-      current[4] = time;
+      const slot = activeBreakIndex(entryNow.breaks);
+      const endCol = [COL.break1End, COL.break2End, COL.break3End][slot];
+      current[endCol] = time;
       break;
-    case "punchOut":
+    }
+    case "punchOut": {
       if (status === "notStarted") throw new Error("未出勤のため退勤できません");
-      if (status === "finished")  throw new Error("既に退勤済みです");
-      // 休憩中に退勤 → 休憩終了 = 退勤時刻とする
-      if (status === "onBreak" && !current[4]) {
-        current[4] = time;
+      if (status === "finished")   throw new Error("既に退勤済みです");
+      // 休憩中に退勤 → 該当スロットの終了を退勤時刻で確定
+      if (status === "onBreak") {
+        const slot = activeBreakIndex(entryNow.breaks);
+        const endCol = [COL.break1End, COL.break2End, COL.break3End][slot];
+        current[endCol] = time;
       }
-      current[5] = time;
+      current[COL.punchOut] = time;
       break;
+    }
   }
 
-  // 計算列(実働 / 休憩)
-  const breakH = current[3] && current[4] ? diffHours(current[3], current[4]) : 0;
-  const workH = current[2] && current[5]
-    ? Math.max(0, diffHours(current[2], current[5]) - breakH)
+  // 再パースして合計時間を計算
+  const after = rowToEntry(current);
+  const breakH = totalBreakHours(after.breaks);
+  const workH = after.punchIn && after.punchOut
+    ? Math.max(0, diffHours(after.punchIn, after.punchOut) - breakH)
     : 0;
-  current[6] = current[2] && current[5] ? workH.toFixed(2) : "";
-  current[7] = breakH > 0 ? breakH.toFixed(2) : "";
+  current[COL.workedH] = (after.punchIn && after.punchOut) ? workH.toFixed(2) : "";
+  current[COL.breakH] = breakH > 0 ? breakH.toFixed(2) : "";
 
   if (index >= 0) {
     const sheetRow = toSheetRow(index);
     await sheets.spreadsheets.values.update({
       spreadsheetId,
-      range: `${SHEET_NAME}!A${sheetRow}:I${sheetRow}`,
+      range: `${SHEET_NAME}!A${sheetRow}:${LAST_COL_LETTER}${sheetRow}`,
       valueInputOption: "RAW",
       requestBody: { values: [current] },
     });

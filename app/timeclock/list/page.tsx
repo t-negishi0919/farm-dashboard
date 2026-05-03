@@ -183,7 +183,7 @@ export default function TimeclockListPage() {
             <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: "'Space Grotesk', sans-serif" }}>
               <thead>
                 <tr style={{ background: "var(--surface-hover)", borderBottom: "1px solid var(--border-subtle)" }}>
-                  {["日付", "名前", "出勤", "休憩開始", "休憩終了", "退勤", "実働", "休憩"].map((h) => (
+                  {["日付", "名前", "出勤", "休憩1", "休憩2", "休憩3", "退勤", "実働", "休憩計"].map((h) => (
                     <th key={h} style={{ fontSize: 10, fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-muted)", padding: "10px 12px", textAlign: "left", whiteSpace: "nowrap" }}>{h}</th>
                   ))}
                 </tr>
@@ -201,8 +201,14 @@ export default function TimeclockListPage() {
                       }}>{e.user}</span>
                     </td>
                     <td style={cellStyle(e.punchIn)}>{e.punchIn ?? "—"}</td>
-                    <td style={cellStyle(e.breakStart)}>{e.breakStart ?? "—"}</td>
-                    <td style={cellStyle(e.breakEnd)}>{e.breakEnd ?? "—"}</td>
+                    {[0, 1, 2].map((bi) => {
+                      const b = e.breaks?.[bi];
+                      const txt = !b || !b.start ? null
+                        : b.end ? `${b.start}〜${b.end}` : `${b.start}〜`;
+                      return (
+                        <td key={bi} style={cellStyle(txt)}>{txt ?? "—"}</td>
+                      );
+                    })}
                     <td style={cellStyle(e.punchOut)}>{e.punchOut ?? "—"}</td>
                     <td style={{ fontSize: 12, padding: "10px 12px", color: "var(--green-bright)", fontWeight: 600 }}>{fmtHM(e.workedHours)}</td>
                     <td style={{ fontSize: 12, padding: "10px 12px", color: "var(--text-muted)" }}>{fmtHM(e.breakHours)}</td>
