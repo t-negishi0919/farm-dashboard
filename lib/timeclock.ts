@@ -47,18 +47,39 @@ function diffHours(start: string, end: string): number {
   return Math.max(0, minutes / 60);
 }
 
+/** Sheets が日付セルを "YYYY/M/D" に整形して返してくることがあるので "YYYY-MM-DD" に正規化 */
+function normalizeDateCell(v: string | undefined): string {
+  if (!v) return "";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
+  const m = v.match(/^(\d{4})\/(\d{1,2})\/(\d{1,2})$/);
+  if (m) return `${m[1]}-${m[2].padStart(2, "0")}-${m[3].padStart(2, "0")}`;
+  return v;
+}
+
+/** "8:12:00" / "08:12" / "8:12 AM" など → "HH:mm" に整形 */
+function normalizeTimeCell(v: string | undefined): string | null {
+  if (!v) return null;
+  // 時刻 "HH:mm" / "H:mm"
+  const m = v.match(/^(\d{1,2}):(\d{1,2})(?::\d{1,2})?\s*(AM|PM)?$/i);
+  if (m) {
+    let h = parseInt(m[1], 10);
+    const min = parseInt(m[2], 10);
+    const ap = m[3]?.toUpperCase();
+    if (ap === "PM" && h < 12) h += 12;
+    if (ap === "AM" && h === 12) h = 0;
+    return `${String(h).padStart(2, "0")}:${String(min).padStart(2, "0")}`;
+  }
+  return v;
+}
+
 function rowToEntry(row: string[]): TimeclockEntry {
-  const punchIn = row[2] || null;
-  const breakStart = row[3] || null;
-  const breakEnd = row[4] || null;
-  const punchOut = row[5] || null;
   return {
-    date: row[0] || "",
+    date: normalizeDateCell(row[0]),
     user: row[1] || "",
-    punchIn,
-    breakStart,
-    breakEnd,
-    punchOut,
+    punchIn:    normalizeTimeCell(row[2]),
+    breakStart: normalizeTimeCell(row[3]),
+    breakEnd:   normalizeTimeCell(row[4]),
+    punchOut:   normalizeTimeCell(row[5]),
     workedHours: row[6] ? parseFloat(row[6]) : null,
     breakHours: row[7] ? parseFloat(row[7]) : null,
     note: row[8] || "",
@@ -107,7 +128,7 @@ async function readAllRows(): Promise<string[][]> {
 export async function getTodayEntry(user: string, date?: string): Promise<TimeclockEntry | null> {
   const targetDate = date ?? getTodayJst();
   const rows = await readAllRows();
-  const found = rows.find((r) => r[0] === targetDate && r[1] === user);
+  const found = rows.find((r) => normalizeDateCell(r[0]) === targetDate && r[1] === user);
   return found ? rowToEntry(found) : null;
 }
 
@@ -132,7 +153,7 @@ export async function listEntries(opts: {
 /** 当日行のインデックスを返す。なければ -1。 */
 async function findRowIndex(user: string, date: string): Promise<{ index: number; rows: string[][] }> {
   const rows = await readAllRows();
-  const idx = rows.findIndex((r) => r[0] === date && r[1] === user);
+  const idx = rows.findIndex((r) => normalizeDateCell(r[0]) === date && r[1] === user);
   return { index: idx, rows };
 }
 
@@ -210,14 +231,14 @@ export async function punch(user: string, action: TimeclockAction): Promise<Punc
     await sheets.spreadsheets.values.update({
       spreadsheetId,
       range: `${SHEET_NAME}!A${sheetRow}:I${sheetRow}`,
-      valueInputOption: "USER_ENTERED",
+      valueInputOption: "RAW",
       requestBody: { values: [current] },
     });
   } else {
     await sheets.spreadsheets.values.append({
       spreadsheetId,
       range: SHEET_NAME,
-      valueInputOption: "USER_ENTERED",
+      valueInputOption: "RAW",
       insertDataOption: "INSERT_ROWS",
       requestBody: { values: [current] },
     });
