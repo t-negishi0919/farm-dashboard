@@ -196,6 +196,52 @@ export function GradeMixCard({ summary }: { summary: YearlySummary | null }) {
 
       {view === "compare" && (
         <div className="flex items-center" style={{ gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 11, color: "var(--text-muted)" }}>粒度</span>
+          <div className="flex gap-1" style={{ background: "var(--surface-hover)", border: "1px solid var(--border-subtle)", borderRadius: 8, padding: 2 }}>
+            {([
+              { id: "year",  label: "年" },
+              { id: "month", label: "月" },
+              { id: "week",  label: "週" },
+            ] as const).map((g) => {
+              const current =
+                selection.startsWith("week:") ? "week" :
+                selection.startsWith("month:") ? "month" :
+                selection === "year" ? "year" : null;
+              const active = current === g.id;
+              const disabled =
+                (g.id === "month" && summary.availableMonths.length === 0) ||
+                (g.id === "week"  && (summary.availableWeeks?.length ?? 0) === 0);
+              return (
+                <button
+                  key={g.id}
+                  disabled={disabled}
+                  onClick={() => {
+                    if (g.id === "year") setSelection("year");
+                    else if (g.id === "month") {
+                      const latest = summary.availableMonths[0];
+                      if (latest) setSelection(`month:${latest}`);
+                    } else {
+                      const latest = summary.availableWeeks?.[0];
+                      if (latest) setSelection(`week:${latest}`);
+                    }
+                  }}
+                  style={{
+                    border: "none",
+                    cursor: disabled ? "not-allowed" : "pointer",
+                    fontFamily: "'Space Grotesk', sans-serif",
+                    fontSize: 11, fontWeight: 500,
+                    padding: "3px 10px", borderRadius: 6,
+                    background: active ? "var(--green)" : "transparent",
+                    color: active ? "#fff" : disabled ? "var(--text-dim)" : "var(--text-muted)",
+                    opacity: disabled ? 0.5 : 1,
+                    transition: "all 0.15s",
+                  }}
+                >
+                  {g.label}
+                </button>
+              );
+            })}
+          </div>
           <span style={{ fontSize: 11, color: "var(--text-muted)" }}>比較対象</span>
           <select
             value={effectiveCompareYear}
