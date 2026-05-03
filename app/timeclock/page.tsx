@@ -204,15 +204,23 @@ function TimeclockPage() {
 
   return (
     <div className="tc-root">
-      {!lockUser && (
-        <div className="tc-userswitch">
-          <select value={user} onChange={(e) => setUser(e.target.value)}>
-            {TIMECLOCK_USERS.map((u) => <option key={u} value={u}>{u}</option>)}
-          </select>
-        </div>
-      )}
-
       <div className="tc-app">
+        {!lockUser && (
+          <div className="tc-userpicker" role="radiogroup" aria-label="ユーザー選択">
+            {TIMECLOCK_USERS.map((u) => (
+              <button
+                key={u}
+                role="radio"
+                aria-checked={u === user}
+                className={`tc-userpicker-btn${u === user ? " active" : ""}`}
+                onClick={() => setUser(u)}
+                disabled={pending !== null}
+              >
+                {u}
+              </button>
+            ))}
+          </div>
+        )}
         <div className="tc-name">{user} <span>さん</span></div>
         <div className="tc-date">{dateStr}</div>
         <div className="tc-clock">{hh}:{mm}:{ss}</div>
@@ -267,20 +275,47 @@ function TimeclockPage() {
           padding: 0;
           overflow-y: auto;
         }
-        .tc-userswitch {
-          position: absolute;
-          top: 16px; right: 16px;
-          z-index: 5;
-        }
-        .tc-userswitch select {
-          background: rgba(255,255,255,0.06);
-          border: 1px solid rgba(255,255,255,0.1);
-          color: #e8f0ea;
+        .tc-userpicker {
+          display: inline-flex;
+          gap: 6px;
+          padding: 4px;
+          background: rgba(255,255,255,0.04);
+          border: 1px solid rgba(255,255,255,0.08);
           border-radius: 999px;
-          padding: 6px 14px;
-          font-size: 12px;
+          margin-bottom: 16px;
+          box-shadow: inset 0 2px 6px rgba(0,0,0,0.4);
+        }
+        .tc-userpicker-btn {
+          appearance: none;
+          background: transparent;
+          border: none;
+          color: rgba(255,255,255,0.55);
+          padding: 8px 18px;
+          font-size: 14px;
+          font-weight: 600;
+          letter-spacing: 0.04em;
+          border-radius: 999px;
           cursor: pointer;
-          outline: none;
+          transition: all 0.18s ease;
+          font-family: 'Noto Sans JP', sans-serif;
+          min-width: 64px;
+        }
+        .tc-userpicker-btn:hover:not(.active):not(:disabled) {
+          color: #e8f0ea;
+          background: rgba(255,255,255,0.05);
+        }
+        .tc-userpicker-btn.active {
+          background: linear-gradient(180deg, #3a9c2c 0%, #1f6e15 100%);
+          color: #fff;
+          box-shadow:
+            0 4px 0 #0a3805,
+            0 8px 14px rgba(0,180,80,0.28),
+            inset 0 1px 0 rgba(255,255,255,0.3);
+          transform: translateY(-1px);
+        }
+        .tc-userpicker-btn:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
         }
         .tc-app {
           max-width: 480px;
