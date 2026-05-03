@@ -41,13 +41,14 @@ export default function DashboardPage() {
   }, []);
 
   return (
-    <div className="flex flex-col" style={{ height: "100vh", overflow: "hidden" }}>
+    <div className="flex flex-col" data-page-shell style={{ height: "100vh", overflow: "hidden" }}>
       {/* Topbar */}
       <div
         className="flex items-center justify-between shrink-0"
+        data-page-topbar
         style={{ height: 60, padding: "0 28px", background: "var(--bg2)", borderBottom: "1px solid var(--border-subtle)" }}
       >
-        <div className="flex items-center gap-2.5" style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: 18, fontWeight: 600, letterSpacing: "-0.02em" }}>
+        <div className="flex items-center gap-2.5" data-page-title style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: 18, fontWeight: 600, letterSpacing: "-0.02em" }}>
           ダッシュボード
           {summary && (
             <span style={{ fontSize: 11, color: "var(--text-muted)", fontWeight: 400, letterSpacing: "0.04em" }}>
@@ -79,7 +80,7 @@ export default function DashboardPage() {
         </a>
       </div>
 
-      <div style={{ flex: 1, overflowY: "auto", padding: "24px 28px", display: "flex", flexDirection: "column", gap: 18 }}>
+      <div data-page-content style={{ flex: 1, overflowY: "auto", padding: "24px 28px", display: "flex", flexDirection: "column", gap: 18 }}>
         {error && (
           <div style={{ background: "rgba(220,38,38,0.12)", border: "1px solid rgba(220,38,38,0.25)", borderRadius: 8, padding: "12px 16px", fontSize: 13, color: "#fca5a5" }}>
             ⚠️ データの取得に失敗しました: {error}

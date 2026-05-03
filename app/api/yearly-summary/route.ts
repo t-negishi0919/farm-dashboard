@@ -66,6 +66,8 @@ export type YearlySummary = {
   availableMonths: string[];
   /** 月ごとの等級ミックス */
   gradesByMonth: Record<string, GradeStat[]>;
+  /** 年ごとの等級ミックス（"YYYY" → GradeStat[]） */
+  gradesByYear: Record<string, GradeStat[]>;
   // 当月の累計
   thisMonthQty: number;
   thisMonthSales: number;
@@ -146,6 +148,8 @@ export async function GET() {
 
     // 月別等級アキュムレータ: {ym: gradeAcc}
     const gradeByMonthAcc = new Map<string, ReturnType<typeof emptyGradeAcc>>();
+    // 年別等級アキュムレータ: {year: gradeAcc}
+    const gradeByYearAcc = new Map<number, ReturnType<typeof emptyGradeAcc>>();
 
     for (const r of data) {
       const m = r.shippingDate.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
@@ -184,6 +188,12 @@ export async function GET() {
         gradeByMonthAcc.set(ym, monthAcc);
       }
 
+      let yearAcc = gradeByYearAcc.get(y);
+      if (!yearAcc) {
+        yearAcc = emptyGradeAcc();
+        gradeByYearAcc.set(y, yearAcc);
+      }
+
       for (const g of GRADES) {
         const grade = r.grades[g];
         if (grade) {
@@ -193,6 +203,8 @@ export async function GET() {
           allTimeGradeAcc[g].total += t;
           monthAcc[g].quantity += q;
           monthAcc[g].total += t;
+          yearAcc[g].quantity += q;
+          yearAcc[g].total += t;
         }
       }
 
@@ -262,6 +274,15 @@ export async function GET() {
       }
     }
 
+    // 年ごとの等級ミックス
+    const gradesByYear: Record<string, GradeStat[]> = {};
+    for (const [y, acc] of gradeByYearAcc.entries()) {
+      const stats = toGradeStats(acc);
+      if (stats.length > 0) {
+        gradesByYear[String(y)] = stats;
+      }
+    }
+
     // 当月ペース予測
     const dim = daysInMonth(thisYear, thisMonth);
     const elapsedRatio = Math.min(now.getDate() / dim, 1);
@@ -296,6 +317,7 @@ export async function GET() {
       allTimeMonthly,
       availableMonths,
       gradesByMonth,
+      gradesByYear,
       thisMonthQty,
       thisMonthSales,
       prevYearSameMonthQty,

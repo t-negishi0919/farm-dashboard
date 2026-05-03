@@ -73,10 +73,10 @@ export default function ShippingPage() {
   const topGradeQty = filtered.reduce((s, r) => s + (r.grades[topGrade]?.quantity ?? 0), 0);
 
   return (
-    <div className="flex flex-col" style={{ height: "100vh", overflow: "hidden" }}>
+    <div className="flex flex-col" data-page-shell style={{ height: "100vh", overflow: "hidden" }}>
       {/* Topbar */}
-      <div className="flex items-center justify-between shrink-0" style={{ height: 60, padding: "0 28px", background: "var(--bg2)", borderBottom: "1px solid var(--border-subtle)" }}>
-        <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: 18, fontWeight: 600, letterSpacing: "-0.02em" }}>
+      <div className="flex items-center justify-between shrink-0" data-page-topbar style={{ height: 60, padding: "0 28px", background: "var(--bg2)", borderBottom: "1px solid var(--border-subtle)" }}>
+        <div data-page-title style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: 18, fontWeight: 600, letterSpacing: "-0.02em" }}>
           出荷記録
         </div>
         <div className="flex gap-1" style={{ background: "var(--surface)", border: "1px solid var(--border-subtle)", borderRadius: 10, padding: 3 }}>
@@ -98,7 +98,7 @@ export default function ShippingPage() {
         </div>
       </div>
 
-      <div style={{ flex: 1, overflowY: "auto", padding: "24px 28px", display: "flex", flexDirection: "column", gap: 20 }}>
+      <div data-page-content style={{ flex: 1, overflowY: "auto", padding: "24px 28px", display: "flex", flexDirection: "column", gap: 20 }}>
         {error && (
           <div style={{ background: "rgba(220,38,38,0.12)", border: "1px solid rgba(220,38,38,0.25)", borderRadius: 8, padding: "12px 16px", fontSize: 13, color: "#fca5a5" }}>
             ⚠️ データの取得に失敗しました: {error}
@@ -112,7 +112,7 @@ export default function ShippingPage() {
           </div>
         ) : (
           <>
-            <div className="flex gap-4">
+            <div className="flex gap-4" data-summary-row>
               <SummaryCard label="出荷合計" value={fmt(totalQty, " 箱")} sub={`${filtered.length} 件`} color="var(--green-bright)" />
               <SummaryCard label="支払合計" value={`¥${totalPayment.toLocaleString()}`} sub={filtered.length > 0 ? `平均 ¥${Math.round(totalPayment / filtered.length).toLocaleString()} / 回` : undefined} color="oklch(0.82 0.14 90)" />
               <SummaryCard label="主力等級" value={topGrade} sub={`${topGradeQty} 箱`} color={GRADE_COLORS[topGrade] ?? "var(--text)"} />

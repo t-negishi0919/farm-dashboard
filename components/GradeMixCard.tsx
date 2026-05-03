@@ -17,12 +17,13 @@ const GRADE_COLOR: Record<string, string> = {
 };
 
 type Selection = string;
-type View = "bar" | "pie" | "stacked";
+type View = "bar" | "pie" | "stacked" | "compare";
 
 const VIEW_OPTS: { id: View; label: string }[] = [
   { id: "bar",     label: "棒" },
   { id: "pie",     label: "円" },
   { id: "stacked", label: "帯" },
+  { id: "compare", label: "比較" },
 ];
 
 function formatYm(ym: string): string {
@@ -50,6 +51,7 @@ export function GradeMixCard({ summary }: { summary: YearlySummary | null }) {
 
   const [selection, setSelection] = useState<Selection>(defaultValue);
   const [view, setView] = useState<View>("bar");
+  const [compareYear, setCompareYear] = useState<string | null>(null);
 
   if (!summary) {
     return <div style={{ ...cardStyle, height: 240, animation: "pulse 1.5s ease-in-out infinite" }} />;
@@ -72,14 +74,32 @@ export function GradeMixCard({ summary }: { summary: YearlySummary | null }) {
   const totalQty = grades.reduce((s, g) => s + g.quantity, 0);
   const max = grades.reduce((m, g) => Math.max(m, g.quantity), 0);
 
+  // 比較対象（compare ビュー時のみ使用）
+  const effectiveCompareYear = compareYear
+    ?? (summary.availableYears.find((y) => y !== summary.thisYear)?.toString()
+        ?? summary.lastYear.toString());
+
+  let compareGrades: GradeStat[] = [];
+  let compareLabel = "";
+  if (selection.startsWith("month:")) {
+    const ym = selection.slice("month:".length);
+    const mo = ym.split("-")[1];
+    const otherYm = `${effectiveCompareYear}-${mo}`;
+    compareGrades = summary.gradesByMonth[otherYm] ?? [];
+    compareLabel = formatYm(otherYm);
+  } else {
+    compareGrades = summary.gradesByYear?.[effectiveCompareYear] ?? [];
+    compareLabel = `${effectiveCompareYear}年 累計`;
+  }
+
   return (
-    <div style={cardStyle}>
-      <div className="flex items-center justify-between" style={{ marginBottom: 14, flexWrap: "wrap", gap: 8 }}>
+    <div data-grade-mix-card style={cardStyle}>
+      <div className="flex items-center justify-between" data-grade-mix-header style={{ marginBottom: 14, flexWrap: "wrap", gap: 8 }}>
         <div className="flex items-center gap-2" style={{ fontSize: 13, fontWeight: 500, color: "var(--text)" }}>
           <div style={{ width: 8, height: 8, borderRadius: "50%", background: "oklch(0.68 0.18 148)" }} />
           等級ミックス
         </div>
-        <div className="flex items-center" style={{ gap: 6, flexWrap: "wrap" }}>
+        <div className="flex items-center" data-grade-mix-toolbar style={{ gap: 6, flexWrap: "wrap" }}>
           <div className="flex" style={{ background: "var(--surface-hover)", border: "1px solid var(--border-subtle)", borderRadius: 8, padding: 2, gap: 1 }}>
             {VIEW_OPTS.map((o) => (
               <button
@@ -133,6 +153,40 @@ export function GradeMixCard({ summary }: { summary: YearlySummary | null }) {
         </div>
       </div>
 
+      {view === "compare" && (
+        <div className="flex items-center" style={{ gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 11, color: "var(--text-muted)" }}>比較対象</span>
+          <select
+            value={effectiveCompareYear}
+            onChange={(e) => setCompareYear(e.target.value)}
+            style={{
+              background: "var(--surface-hover)",
+              border: "1px solid var(--border-subtle)",
+              color: "var(--text)",
+              borderRadius: 8,
+              padding: "4px 10px",
+              fontSize: 12,
+              fontFamily: "'Space Grotesk', sans-serif",
+              cursor: "pointer",
+              outline: "none",
+            }}
+          >
+            {summary.availableYears
+              .filter((y) => {
+                if (selection === "year") return y !== summary.thisYear;
+                if (selection.startsWith("month:")) {
+                  const ym = selection.slice("month:".length);
+                  return String(y) !== ym.split("-")[0];
+                }
+                return true;
+              })
+              .map((y) => (
+                <option key={y} value={String(y)}>{y}年</option>
+              ))}
+          </select>
+        </div>
+      )}
+
       <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 12, fontFamily: "'Space Grotesk', sans-serif" }}>
         {scopeLabel} <span style={{ color: "var(--text-dim)" }}>· 合計 {totalQty.toLocaleString()} 箱</span>
       </div>
@@ -145,6 +199,11 @@ export function GradeMixCard({ summary }: { summary: YearlySummary | null }) {
         <PieView grades={grades} totalQty={totalQty} />
       ) : view === "stacked" ? (
         <StackedBarView grades={grades} totalQty={totalQty} />
+      ) : view === "compare" ? (
+        <CompareView
+          a={grades} aLabel={scopeLabel}
+          b={compareGrades} bLabel={compareLabel}
+        />
       ) : (
         <BarView grades={grades} max={max} totalQty={totalQty} />
       )}
@@ -161,8 +220,8 @@ function BarView({ grades, max, totalQty }: { grades: GradeStat[]; max: number; 
         const color = GRADE_COLOR[g.grade] ?? "var(--text-muted)";
         return (
           <div key={g.grade}>
-            <div className="flex items-center justify-between" style={{ marginBottom: 4 }}>
-              <div className="flex items-center gap-2">
+            <div className="flex justify-between" data-grade-row style={{ marginBottom: 4, gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+              <div className="flex items-center" style={{ gap: 8, flexWrap: "wrap", minWidth: 0 }}>
                 <span style={{ fontSize: 12, fontWeight: 600, fontFamily: "'Space Grotesk', sans-serif", color, minWidth: 32 }}>
                   {g.grade}
                 </span>
@@ -173,7 +232,7 @@ function BarView({ grades, max, totalQty }: { grades: GradeStat[]; max: number; 
                   ({sharePct.toFixed(1)}%)
                 </span>
               </div>
-              <div className="flex items-center gap-3" style={{ fontSize: 11, fontFamily: "'Space Grotesk', sans-serif", color: "var(--text-muted)" }}>
+              <div className="flex items-center" data-grade-price style={{ gap: 12, fontSize: 11, fontFamily: "'Space Grotesk', sans-serif", color: "var(--text-muted)", flexWrap: "wrap" }}>
                 <span>単価 ¥{g.unitPrice != null ? g.unitPrice.toLocaleString() : "—"}</span>
                 <span style={{ color: "var(--text-dim)" }}>総額 ¥{g.total.toLocaleString()}</span>
               </div>
@@ -274,7 +333,7 @@ function PieView({ grades, totalQty }: { grades: GradeStat[]; totalQty: number }
   };
 
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1.1fr) minmax(0, 1fr)", gap: 16, alignItems: "center" }}>
+    <div data-pie-grid style={{ display: "grid", gridTemplateColumns: "minmax(0, 1.1fr) minmax(0, 1fr)", gap: 16, alignItems: "center" }}>
       <div style={{ minWidth: 0 }}>
         <ResponsiveContainer width="100%" height={280}>
           <PieChart>
@@ -393,6 +452,175 @@ function StackedBarView({ grades, totalQty }: { grades: GradeStat[]; totalQty: n
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+function CompareView({ a, aLabel, b, bLabel }: {
+  a: GradeStat[]; aLabel: string;
+  b: GradeStat[]; bLabel: string;
+}) {
+  const aTotal = a.reduce((s, g) => s + g.quantity, 0);
+  const bTotal = b.reduce((s, g) => s + g.quantity, 0);
+
+  const grades = Array.from(new Set([...a.map((g) => g.grade), ...b.map((g) => g.grade)]));
+  // 順序保持: GRADE_COLOR の登場順を優先
+  const order = Object.keys(GRADE_COLOR);
+  grades.sort((x, y) => order.indexOf(x) - order.indexOf(y));
+
+  const aMap = new Map(a.map((g) => [g.grade, g]));
+  const bMap = new Map(b.map((g) => [g.grade, g]));
+
+  const rows = grades.map((g) => {
+    const av = aMap.get(g);
+    const bv = bMap.get(g);
+    const aQty = av?.quantity ?? 0;
+    const bQty = bv?.quantity ?? 0;
+    const aShare = aTotal > 0 ? (aQty / aTotal) * 100 : 0;
+    const bShare = bTotal > 0 ? (bQty / bTotal) * 100 : 0;
+    return {
+      grade: g,
+      color: GRADE_COLOR[g] ?? "var(--text-muted)",
+      aQty, bQty, aShare, bShare,
+      shareDelta: aShare - bShare,
+      qtyDelta: aQty - bQty,
+    };
+  });
+
+  if (aTotal === 0 && bTotal === 0) {
+    return (
+      <div style={{ fontSize: 12, color: "var(--text-dim)", padding: "20px 0", textAlign: "center" }}>
+        比較できるデータがありません
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+      {/* 2 本の 100% 帯 */}
+      <CompareStackRow label={aLabel} total={aTotal} accent="var(--green-bright)"
+        segments={rows.map((r) => ({ grade: r.grade, color: r.color, share: r.aShare, qty: r.aQty }))}
+      />
+      <CompareStackRow label={bLabel} total={bTotal} accent="var(--text-muted)"
+        segments={rows.map((r) => ({ grade: r.grade, color: r.color, share: r.bShare, qty: r.bQty }))}
+      />
+
+      {/* 等級別 比較表 */}
+      <div style={{ marginTop: 4, border: "1px solid var(--border-subtle)", borderRadius: 8, overflow: "hidden" }}>
+        <div data-compare-row data-compare-head style={{
+          display: "grid",
+          gridTemplateColumns: "60px 1fr 1fr 1fr",
+          padding: "8px 12px",
+          background: "var(--surface-hover)",
+          fontSize: 10,
+          letterSpacing: "0.08em",
+          textTransform: "uppercase",
+          color: "var(--text-muted)",
+          fontFamily: "'Space Grotesk', sans-serif",
+        }}>
+          <div>等級</div>
+          <div style={{ textAlign: "right" }}>{aLabel}</div>
+          <div style={{ textAlign: "right" }}>{bLabel}</div>
+          <div style={{ textAlign: "right" }}>差分</div>
+        </div>
+        {rows.map((r) => {
+          const sign = r.shareDelta >= 0 ? "+" : "";
+          const deltaColor = Math.abs(r.shareDelta) < 0.05
+            ? "var(--text-dim)"
+            : r.shareDelta > 0 ? "var(--green-bright)" : "var(--red, oklch(0.65 0.18 25))";
+          return (
+            <div key={r.grade} data-compare-row style={{
+              display: "grid",
+              gridTemplateColumns: "60px 1fr 1fr 1fr",
+              padding: "8px 12px",
+              borderTop: "1px solid var(--border-subtle)",
+              alignItems: "center",
+              fontFamily: "'Space Grotesk', sans-serif",
+              fontSize: 12,
+            }}>
+              <div className="flex items-center gap-2" style={{ minWidth: 0 }}>
+                <span style={{ width: 8, height: 8, borderRadius: 2, background: r.color, flexShrink: 0 }} />
+                <span style={{ color: r.color, fontWeight: 700 }}>{r.grade}</span>
+              </div>
+              <div style={{ textAlign: "right", color: "var(--text)" }}>
+                <div>{r.aShare.toFixed(1)}%</div>
+                <div style={{ fontSize: 10, color: "var(--text-dim)" }}>{r.aQty.toLocaleString()} 箱</div>
+              </div>
+              <div style={{ textAlign: "right", color: "var(--text-muted)" }}>
+                <div>{r.bShare.toFixed(1)}%</div>
+                <div style={{ fontSize: 10, color: "var(--text-dim)" }}>{r.bQty.toLocaleString()} 箱</div>
+              </div>
+              <div style={{ textAlign: "right", color: deltaColor, fontWeight: 600 }}>
+                <div>{sign}{r.shareDelta.toFixed(1)}pt</div>
+                <div style={{ fontSize: 10, fontWeight: 400 }}>{r.qtyDelta >= 0 ? "+" : ""}{r.qtyDelta.toLocaleString()} 箱</div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function CompareStackRow({ label, total, accent, segments }: {
+  label: string; total: number; accent: string;
+  segments: { grade: string; color: string; share: number; qty: number }[];
+}) {
+  return (
+    <div>
+      <div className="flex items-center justify-between" style={{ marginBottom: 6, gap: 8, flexWrap: "wrap" }}>
+        <div style={{ fontSize: 12, fontWeight: 600, fontFamily: "'Space Grotesk', sans-serif", color: accent }}>
+          {label}
+        </div>
+        <div style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "'Space Grotesk', sans-serif" }}>
+          合計 {total.toLocaleString()} 箱
+        </div>
+      </div>
+      {total === 0 ? (
+        <div style={{
+          height: 28,
+          borderRadius: 6,
+          border: "1px dashed var(--border-subtle)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          fontSize: 11, color: "var(--text-dim)",
+        }}>
+          データなし
+        </div>
+      ) : (
+        <div style={{
+          height: 28, display: "flex",
+          borderRadius: 6, overflow: "hidden",
+          border: "1px solid var(--border-subtle)",
+        }}>
+          {segments.filter((s) => s.share > 0).map((s) => (
+            <div
+              key={s.grade}
+              title={`${s.grade}: ${s.share.toFixed(1)}% (${s.qty.toLocaleString()}箱)`}
+              style={{
+                width: `${s.share}%`,
+                background: s.color,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                minWidth: 0,
+              }}
+            >
+              {s.share >= 8 && (
+                <span style={{
+                  color: "#0e1610",
+                  fontSize: 10,
+                  fontWeight: 800,
+                  fontFamily: "'Space Grotesk', sans-serif",
+                  whiteSpace: "nowrap",
+                  padding: "0 4px",
+                }}>
+                  {s.grade} {s.share.toFixed(1)}%
+                </span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
