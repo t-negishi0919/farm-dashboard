@@ -84,8 +84,7 @@ function TimeclockPage() {
   const [data, setData] = useState<ApiStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState<TimeclockAction | null>(null);
-  const [confirm, setConfirm] = useState<TimeclockAction | null>(null);
-  const [toast, setToast] = useState<string | null>(null);
+  const [successAction, setSuccessAction] = useState<TimeclockAction | null>(null);
   const [now, setNow] = useState(new Date());
 
   // 初期ユーザー確定
@@ -128,6 +127,7 @@ function TimeclockPage() {
   const button = BUTTON_BY_STATUS[status];
 
   const submit = async (action: TimeclockAction) => {
+    if (pending || successAction) return; // 連打防止
     setPending(action);
     setError(null);
     try {
@@ -138,17 +138,18 @@ function TimeclockPage() {
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? "打刻に失敗しました");
-      setData({ user, status: json.status, entry: json.entry });
-      setToast(toastMessage(action, json.entry));
       if (typeof window !== "undefined" && "vibrate" in navigator) {
-        navigator.vibrate?.(20);
+        navigator.vibrate?.(30);
       }
-      setTimeout(() => setToast(null), 4000);
+      setData({ user, status: json.status, entry: json.entry });
+      setSuccessAction(action);
+      window.setTimeout(() => setSuccessAction(null), 1200);
     } catch (e) {
-      setError(String(e));
+      const msg = e instanceof Error ? e.message : String(e);
+      setError(msg);
+      window.setTimeout(() => setError(null), 5000);
     } finally {
       setPending(null);
-      setConfirm(null);
     }
   };
 
@@ -220,9 +221,10 @@ function TimeclockPage() {
         {button ? (
           <BigButton
             spec={button}
-            disabled={pending !== null}
+            disabled={pending !== null || successAction !== null}
             pending={pending === button.action}
-            onTap={() => setConfirm(button.action)}
+            success={successAction === button.action}
+            onTap={() => submit(button.action)}
           />
         ) : (
           <FinishedCard entry={data?.entry ?? null} />
@@ -230,8 +232,8 @@ function TimeclockPage() {
 
         {(status === "working" || status === "onBreak") && (
           <button
-            onClick={() => setConfirm("punchOut")}
-            disabled={pending !== null}
+            onClick={() => submit("punchOut")}
+            disabled={pending !== null || successAction !== null}
             style={{
               alignSelf: "stretch",
               background: "transparent",
@@ -253,27 +255,6 @@ function TimeclockPage() {
         <LogList entry={data?.entry ?? null} />
       </div>
 
-      {confirm && (
-        <ConfirmSheet
-          action={confirm}
-          time={`${pad(now.getHours())}:${pad(now.getMinutes())}`}
-          pending={pending !== null}
-          onConfirm={() => submit(confirm)}
-          onCancel={() => setConfirm(null)}
-        />
-      )}
-
-      {toast && (
-        <div style={{
-          position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)",
-          background: "rgba(14,22,18,0.96)", border: "1px solid var(--border-strong)",
-          color: "var(--text)", padding: "10px 18px", borderRadius: 12,
-          fontSize: 13, boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
-          maxWidth: "90vw",
-        }}>
-          {toast}
-        </div>
-      )}
     </div>
   );
 }
@@ -338,8 +319,15 @@ function ButtonIcon({ kind, size = 56 }: { kind: ButtonSpec["icon"]; size?: numb
   }
 }
 
-function BigButton({ spec, disabled, pending, onTap }: {
-  spec: ButtonSpec; disabled: boolean; pending: boolean; onTap: () => void;
+const SUCCESS_LABEL: Record<TimeclockAction, string> = {
+  punchIn:    "出勤しました",
+  breakStart: "休憩に入りました",
+  breakEnd:   "休憩終了",
+  punchOut:   "退勤しました",
+};
+
+function BigButton({ spec, disabled, pending, success, onTap }: {
+  spec: ButtonSpec; disabled: boolean; pending: boolean; success: boolean; onTap: () => void;
 }) {
   const p = spec.palette;
   return (
@@ -362,7 +350,7 @@ function BigButton({ spec, disabled, pending, onTap }: {
       <button
         onClick={onTap}
         disabled={disabled}
-        className="tc-big-btn"
+        className={`tc-big-btn ${success ? "tc-big-btn--success" : ""}`}
         style={{
           position: "relative",
           width: "100%",
@@ -370,40 +358,47 @@ function BigButton({ spec, disabled, pending, onTap }: {
           border: 0,
           borderRadius: 30,
           color: "#fff",
-          cursor: disabled ? "not-allowed" : "pointer",
-          opacity: disabled && !pending ? 0.85 : 1,
+          cursor: disabled ? "default" : "pointer",
+          opacity: disabled && !pending && !success ? 0.85 : 1,
           background: `
             linear-gradient(180deg, rgba(255,255,255,0.20), transparent 38%),
             linear-gradient(145deg, ${p.faceTop}, ${p.faceMid} 70%, ${p.faceBot})
           `,
-          boxShadow: `
-            0 12px 0 ${p.rim},
-            0 26px 46px ${p.glow},
-            inset 0 1px 0 rgba(255,255,255,0.35),
-            inset 0 -10px 20px rgba(0,0,0,0.22)
-          `,
-          transform: "translateY(0)",
-          transition: "transform .08s ease, box-shadow .08s ease, filter .12s ease",
+          boxShadow: success
+            ? `0 4px 0 ${p.rim}, 0 12px 24px ${p.glow}, inset 0 4px 16px rgba(0,0,0,0.24)`
+            : `0 12px 0 ${p.rim}, 0 26px 46px ${p.glow}, inset 0 1px 0 rgba(255,255,255,0.35), inset 0 -10px 20px rgba(0,0,0,0.22)`,
+          transform: success ? "translateY(8px)" : "translateY(0)",
+          filter: success ? "brightness(0.96)" : undefined,
+          transition: "transform .12s ease, box-shadow .12s ease, filter .15s ease",
           overflow: "hidden",
           display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
           gap: 14,
         }}
+        aria-live="polite"
       >
-        <ButtonIcon kind={spec.icon} />
+        <ButtonIcon kind={success ? "check" : spec.icon} />
         <div style={{
-          fontSize: 38, fontWeight: 800, letterSpacing: "0.08em",
+          fontSize: 36, fontWeight: 800, letterSpacing: "0.08em",
           textShadow: "0 2px 4px rgba(0,0,0,0.25)",
         }}>
-          {pending ? "送信中…" : spec.label}
+          {success ? SUCCESS_LABEL[spec.action] : pending ? "送信中…" : spec.label}
         </div>
         <div style={{ fontSize: 12, letterSpacing: "0.18em", opacity: 0.85 }}>
-          {spec.hint}
+          {success ? "記録しました" : spec.hint}
         </div>
         {pending && (
           <span className="tc-ripple" style={{
             position: "absolute", inset: 0, pointerEvents: "none",
             background: "radial-gradient(circle at 50% 50%, rgba(255,255,255,0.5), transparent 60%)",
             opacity: 0,
+          }} />
+        )}
+        {success && (
+          <span style={{
+            position: "absolute", inset: 0, pointerEvents: "none",
+            borderRadius: 30,
+            background: "radial-gradient(circle at 50% 50%, rgba(255,255,255,0.55), transparent 60%)",
+            animation: "tc-flash 0.6s ease-out forwards",
           }} />
         )}
       </button>
@@ -543,81 +538,3 @@ function fmtHM(hours: number): string {
   return `${h}:${pad(m)}`;
 }
 
-const ACTION_LABEL: Record<TimeclockAction, string> = {
-  punchIn:    "出勤",
-  breakStart: "休憩開始",
-  breakEnd:   "休憩終了",
-  punchOut:   "退勤",
-};
-
-function ConfirmSheet({ action, time, pending, onConfirm, onCancel }: {
-  action: TimeclockAction; time: string; pending: boolean;
-  onConfirm: () => void; onCancel: () => void;
-}) {
-  return (
-    <div
-      onClick={onCancel}
-      style={{
-        position: "fixed", inset: 0,
-        background: "rgba(0,0,0,0.6)", backdropFilter: "blur(6px)",
-        zIndex: 60, display: "flex", alignItems: "flex-end", justifyContent: "center",
-      }}
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        style={{
-          background: "var(--bg2)", border: "1px solid var(--border-strong)",
-          borderRadius: "20px 20px 0 0", padding: "24px 24px 32px",
-          width: "100%", maxWidth: 520,
-          animation: "slideUp 0.18s ease-out",
-        }}
-      >
-        <style>{`@keyframes slideUp { from { transform: translateY(20%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }`}</style>
-        <div style={{ width: 40, height: 4, background: "var(--border-strong)", borderRadius: 2, margin: "0 auto 16px" }} />
-        <div style={{ textAlign: "center" }}>
-          <div style={{ fontSize: 14, color: "var(--text-muted)" }}>{ACTION_LABEL[action]}します</div>
-          <div style={{ fontSize: 48, fontWeight: 700, fontFamily: "'Space Grotesk', sans-serif", letterSpacing: "-0.04em", margin: "8px 0" }}>
-            {time}
-          </div>
-        </div>
-        <button
-          onClick={onConfirm}
-          disabled={pending}
-          style={{
-            width: "100%", marginTop: 8,
-            background: "var(--green)", color: "#fff",
-            border: "none", borderRadius: 14, padding: "14px",
-            fontSize: 15, fontWeight: 600, cursor: pending ? "wait" : "pointer",
-            opacity: pending ? 0.6 : 1,
-          }}
-        >
-          {pending ? "送信中…" : `この時刻で${ACTION_LABEL[action]}`}
-        </button>
-        <button
-          onClick={onCancel}
-          disabled={pending}
-          style={{
-            width: "100%", marginTop: 8,
-            background: "transparent", color: "var(--text-muted)",
-            border: "none", padding: "10px",
-            fontSize: 13, cursor: "pointer",
-          }}
-        >
-          キャンセル
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function toastMessage(action: TimeclockAction, entry: TimeclockEntry): string {
-  switch (action) {
-    case "punchIn":    return `${entry.punchIn} 出勤しました`;
-    case "breakStart": return `${entry.breakStart} 休憩に入りました`;
-    case "breakEnd":   return `${entry.breakEnd} 仕事に戻ります`;
-    case "punchOut":
-      return entry.workedHours
-        ? `おつかれさま! 今日は ${fmtHM(entry.workedHours)} はたらきました 🌙`
-        : "おつかれさまでした 🌙";
-  }
-}
