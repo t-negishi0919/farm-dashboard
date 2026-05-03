@@ -16,33 +16,53 @@ const STATUS_LABEL: Record<TimeclockStatus, string> = {
   finished:   "退勤済",
 };
 
+type Palette = {
+  /** ボタン本体グラデ(濃い→暗い) */
+  faceTop: string;
+  faceMid: string;
+  faceBot: string;
+  /** 沈んだ見た目で出る底面リム色(基本グラデの濃い色) */
+  rim: string;
+  /** 周囲の柔らかい光 */
+  glow: string;
+};
+
 type ButtonSpec = {
   action: TimeclockAction;
   label: string;
-  icon: string;
   hint: string;
-  bg: string;
-  glow: string;
+  icon: "power" | "coffee" | "play" | "check";
+  palette: Palette;
+};
+
+const PALETTE_GREEN: Palette = {
+  faceTop: "#35d86d", faceMid: "#08a943", faceBot: "#058833",
+  rim: "#05712d",
+  glow: "rgba(0,180,80,0.28)",
+};
+const PALETTE_AMBER: Palette = {
+  faceTop: "#f7c66b", faceMid: "#dd9521", faceBot: "#b27410",
+  rim: "#7d4f08",
+  glow: "rgba(232,160,40,0.28)",
+};
+const PALETTE_BLUE: Palette = {
+  faceTop: "#7ec5ef", faceMid: "#3a92cf", faceBot: "#1e6fa6",
+  rim: "#114e76",
+  glow: "rgba(70,150,220,0.28)",
 };
 
 const BUTTON_BY_STATUS: Record<TimeclockStatus, ButtonSpec | null> = {
   notStarted: {
-    action: "punchIn", label: "出 勤", icon: "🌅",
-    hint: "タップで打刻",
-    bg: "linear-gradient(140deg, oklch(0.68 0.18 148), oklch(0.55 0.16 148))",
-    glow: "rgba(72,199,116,0.35)",
+    action: "punchIn", label: "出勤", hint: "押して打刻",
+    icon: "power", palette: PALETTE_GREEN,
   },
   working: {
-    action: "breakStart", label: "休憩開始", icon: "☕",
-    hint: "勤務中",
-    bg: "linear-gradient(140deg, oklch(0.74 0.16 68), oklch(0.62 0.14 68))",
-    glow: "rgba(244,177,84,0.35)",
+    action: "breakStart", label: "休憩開始", hint: "押して打刻",
+    icon: "coffee", palette: PALETTE_AMBER,
   },
   onBreak: {
-    action: "breakEnd", label: "休憩終了", icon: "▶︎",
-    hint: "休憩中",
-    bg: "linear-gradient(140deg, oklch(0.72 0.12 215), oklch(0.58 0.12 215))",
-    glow: "rgba(110,177,222,0.35)",
+    action: "breakEnd", label: "休憩終了", hint: "押して打刻",
+    icon: "play", palette: PALETTE_BLUE,
   },
   finished: null,
 };
@@ -282,43 +302,144 @@ function StatusChip({ status }: { status: TimeclockStatus }) {
   );
 }
 
+function ButtonIcon({ kind, size = 56 }: { kind: ButtonSpec["icon"]; size?: number }) {
+  const s = size;
+  const stroke = "rgba(255,255,255,0.95)";
+  switch (kind) {
+    case "power":
+      return (
+        <svg width={s} height={s} viewBox="0 0 64 64" fill="none">
+          <path d="M22 15 A20 20 0 1 0 42 15" stroke={stroke} strokeWidth="4.5" strokeLinecap="round" />
+          <line x1="32" y1="8" x2="32" y2="32" stroke={stroke} strokeWidth="4.5" strokeLinecap="round" />
+        </svg>
+      );
+    case "coffee":
+      return (
+        <svg width={s} height={s} viewBox="0 0 64 64" fill="none">
+          <path d="M14 24 H44 V42 A10 10 0 0 1 34 52 H24 A10 10 0 0 1 14 42 Z"
+                stroke={stroke} strokeWidth="4" strokeLinejoin="round" />
+          <path d="M44 28 H50 A6 6 0 0 1 50 40 H44" stroke={stroke} strokeWidth="4" strokeLinecap="round" />
+          <path d="M22 12 C22 16 26 16 26 20 M30 12 C30 16 34 16 34 20"
+                stroke={stroke} strokeWidth="3.5" strokeLinecap="round" />
+        </svg>
+      );
+    case "play":
+      return (
+        <svg width={s} height={s} viewBox="0 0 64 64" fill="none">
+          <path d="M22 14 L48 32 L22 50 Z" fill={stroke} />
+        </svg>
+      );
+    case "check":
+      return (
+        <svg width={s} height={s} viewBox="0 0 64 64" fill="none">
+          <path d="M14 33 L27 46 L50 19" stroke={stroke} strokeWidth="6" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      );
+  }
+}
+
 function BigButton({ spec, disabled, pending, onTap }: {
   spec: ButtonSpec; disabled: boolean; pending: boolean; onTap: () => void;
 }) {
+  const p = spec.palette;
   return (
-    <button
-      onClick={onTap}
-      disabled={disabled}
+    <div
       style={{
-        position: "relative",
         alignSelf: "stretch",
-        width: "100%",
-        height: 220,
-        background: spec.bg,
-        border: "none",
-        borderRadius: 28,
-        color: "#fff",
-        cursor: disabled ? "not-allowed" : "pointer",
-        boxShadow: `0 12px 36px ${spec.glow}, inset 0 1px 0 rgba(255,255,255,0.18)`,
-        opacity: disabled && !pending ? 0.7 : 1,
-        transition: "transform 0.12s ease, box-shadow 0.2s ease, opacity 0.15s",
-        display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-        gap: 10,
-        overflow: "hidden",
+        padding: 10,
+        borderRadius: 36,
+        background: `
+          radial-gradient(circle at 50% 20%, rgba(255,255,255,0.08), transparent 36%),
+          linear-gradient(180deg, #07100b, #020604)
+        `,
+        boxShadow: `
+          inset 0 8px 18px rgba(255,255,255,0.04),
+          inset 0 -14px 28px rgba(0,0,0,0.7),
+          0 24px 60px rgba(0,0,0,0.55)
+        `,
       }}
-      onMouseDown={(e) => { (e.currentTarget as HTMLButtonElement).style.transform = "scale(0.98)"; }}
-      onMouseUp={(e) => { (e.currentTarget as HTMLButtonElement).style.transform = "scale(1)"; }}
-      onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.transform = "scale(1)"; }}
-      onTouchStart={(e) => { (e.currentTarget as HTMLButtonElement).style.transform = "scale(0.98)"; }}
-      onTouchEnd={(e) => { (e.currentTarget as HTMLButtonElement).style.transform = "scale(1)"; }}
     >
-      <div style={{ fontSize: 56, lineHeight: 1 }}>{spec.icon}</div>
-      <div style={{ fontSize: 36, fontWeight: 700, letterSpacing: "0.06em", textShadow: "0 2px 8px rgba(0,0,0,0.3)" }}>
-        {pending ? "送信中…" : spec.label}
-      </div>
-      <div style={{ fontSize: 12, opacity: 0.85, letterSpacing: "0.08em" }}>{spec.hint}</div>
-      <div style={{ position: "absolute", inset: 0, background: "radial-gradient(circle at 30% 20%, rgba(255,255,255,0.18), transparent 60%)", pointerEvents: "none" }} />
-    </button>
+      <button
+        onClick={onTap}
+        disabled={disabled}
+        className="tc-big-btn"
+        style={{
+          position: "relative",
+          width: "100%",
+          height: 260,
+          border: 0,
+          borderRadius: 30,
+          color: "#fff",
+          cursor: disabled ? "not-allowed" : "pointer",
+          opacity: disabled && !pending ? 0.85 : 1,
+          background: `
+            linear-gradient(180deg, rgba(255,255,255,0.20), transparent 38%),
+            linear-gradient(145deg, ${p.faceTop}, ${p.faceMid} 70%, ${p.faceBot})
+          `,
+          boxShadow: `
+            0 12px 0 ${p.rim},
+            0 26px 46px ${p.glow},
+            inset 0 1px 0 rgba(255,255,255,0.35),
+            inset 0 -10px 20px rgba(0,0,0,0.22)
+          `,
+          transform: "translateY(0)",
+          transition: "transform .08s ease, box-shadow .08s ease, filter .12s ease",
+          overflow: "hidden",
+          display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+          gap: 14,
+        }}
+      >
+        <ButtonIcon kind={spec.icon} />
+        <div style={{
+          fontSize: 38, fontWeight: 800, letterSpacing: "0.08em",
+          textShadow: "0 2px 4px rgba(0,0,0,0.25)",
+        }}>
+          {pending ? "送信中…" : spec.label}
+        </div>
+        <div style={{ fontSize: 12, letterSpacing: "0.18em", opacity: 0.85 }}>
+          {spec.hint}
+        </div>
+        {pending && (
+          <span className="tc-ripple" style={{
+            position: "absolute", inset: 0, pointerEvents: "none",
+            background: "radial-gradient(circle at 50% 50%, rgba(255,255,255,0.5), transparent 60%)",
+            opacity: 0,
+          }} />
+        )}
+      </button>
+      <style>{`
+        .tc-big-btn:active:not(:disabled) {
+          transform: translateY(8px);
+          box-shadow:
+            0 4px 0 ${p.rim},
+            0 12px 24px ${p.glow},
+            inset 0 4px 16px rgba(0,0,0,0.24) !important;
+          filter: brightness(0.96);
+        }
+        .tc-big-btn:active::after {
+          content: "";
+          position: absolute;
+          inset: 0;
+          border-radius: 30px;
+          background: radial-gradient(circle at 50% 50%, rgba(255,255,255,0.45), transparent 55%);
+          animation: tc-flash 0.4s ease-out forwards;
+          pointer-events: none;
+        }
+        @keyframes tc-flash {
+          0% { opacity: 0; transform: scale(0.6); }
+          40% { opacity: 1; }
+          100% { opacity: 0; transform: scale(1.1); }
+        }
+        .tc-ripple {
+          animation: tc-ripple-pulse 1.2s ease-out infinite;
+        }
+        @keyframes tc-ripple-pulse {
+          0% { opacity: 0; transform: scale(0.7); }
+          50% { opacity: 1; }
+          100% { opacity: 0; transform: scale(1.2); }
+        }
+      `}</style>
+    </div>
   );
 }
 
@@ -328,17 +449,48 @@ function FinishedCard({ entry }: { entry: TimeclockEntry | null }) {
   return (
     <div style={{
       alignSelf: "stretch",
-      background: "linear-gradient(140deg, rgba(110,177,222,0.12), rgba(110,177,222,0.04))",
-      border: "1px solid rgba(110,177,222,0.25)",
-      borderRadius: 28, padding: "32px 24px", textAlign: "center",
+      padding: 10,
+      borderRadius: 36,
+      background: `
+        radial-gradient(circle at 50% 20%, rgba(255,255,255,0.06), transparent 36%),
+        linear-gradient(180deg, #07100b, #020604)
+      `,
+      boxShadow: `
+        inset 0 8px 18px rgba(255,255,255,0.04),
+        inset 0 -14px 28px rgba(0,0,0,0.7),
+        0 24px 60px rgba(0,0,0,0.55)
+      `,
     }}>
-      <div style={{ fontSize: 48 }}>🌙</div>
-      <div style={{ fontSize: 22, fontWeight: 600, marginTop: 8 }}>本日終了</div>
-      <div style={{ fontSize: 13, color: "var(--text-muted)", marginTop: 4 }}>おつかれさまでした</div>
-      <div style={{ fontSize: 14, marginTop: 16, fontFamily: "'Space Grotesk', sans-serif" }}>
-        実働 <span style={{ color: "var(--green-bright)", fontWeight: 600 }}>{fmtHM(worked)}</span>
-        <span style={{ color: "var(--text-dim)", margin: "0 8px" }}>/</span>
-        休憩 <span style={{ color: "oklch(0.86 0.16 68)", fontWeight: 600 }}>{fmtHM(breakH)}</span>
+      <div style={{
+        position: "relative",
+        width: "100%",
+        height: 260,
+        borderRadius: 30,
+        background: `
+          linear-gradient(180deg, rgba(255,255,255,0.10), transparent 38%),
+          linear-gradient(145deg, #2a3a32, #1d2a24 70%, #15201b)
+        `,
+        boxShadow: `
+          0 4px 0 #0c1612,
+          inset 0 1px 0 rgba(255,255,255,0.12),
+          inset 0 -10px 20px rgba(0,0,0,0.4)
+        `,
+        color: "rgba(232,240,234,0.9)",
+        display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+        gap: 12, textAlign: "center",
+      }}>
+        <ButtonIcon kind="check" size={56} />
+        <div style={{ fontSize: 30, fontWeight: 800, letterSpacing: "0.08em" }}>退勤済み</div>
+        <div style={{ fontSize: 12, letterSpacing: "0.18em", opacity: 0.7 }}>おつかれさまでした</div>
+        <div style={{
+          marginTop: 4, padding: "8px 16px",
+          background: "rgba(0,0,0,0.25)", borderRadius: 999,
+          fontFamily: "'Space Grotesk', sans-serif", fontSize: 13,
+        }}>
+          実働 <span style={{ color: "var(--green-bright)", fontWeight: 700 }}>{fmtHM(worked)}</span>
+          <span style={{ opacity: 0.4, margin: "0 8px" }}>/</span>
+          休憩 <span style={{ color: "oklch(0.86 0.16 68)", fontWeight: 700 }}>{fmtHM(breakH)}</span>
+        </div>
       </div>
     </div>
   );
