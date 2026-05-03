@@ -256,6 +256,16 @@
   [data-compare-head] {
     font-size: 9px !important;
   }
+  [data-compare-stack-panel] {
+    gap: 16px !important;
+    padding: 12px 8px 14px !important;
+  }
+  [data-compare-stack-column] {
+    flex: 1 1 0;
+  }
+  [data-compare-vs] {
+    display: none;
+  }
   /* ヘッダー: タイトルとツールバーを縦に積む */
   [data-grade-mix-header] {
     flex-direction: column;
