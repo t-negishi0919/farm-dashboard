@@ -193,7 +193,6 @@ function TimeclockPage() {
 
   const hh = now ? String(now.getHours()).padStart(2, "0") : "--";
   const mm = now ? String(now.getMinutes()).padStart(2, "0") : "--";
-  const ss = now ? String(now.getSeconds()).padStart(2, "0") : "--";
 
   const logItems = [
     { key: "in",         icon: "🌅", label: "出勤",     time: entry?.punchIn },
@@ -223,13 +222,18 @@ function TimeclockPage() {
         )}
         <div className="tc-name">{user} <span>さん</span></div>
         <div className="tc-date">{dateStr}</div>
-        <div className="tc-clock">{hh}:{mm}:{ss}</div>
+        <div className="tc-clock">{hh}:{mm}</div>
         <div className={`tc-status-pill${isActive ? " active" : ""}`}>
           <div className="tc-status-dot" />
           {STATUS_LABEL[fk]}
         </div>
 
         {error && <div className="tc-error">⚠️ {error}</div>}
+
+        <div className="tc-action-copy">
+          <span>次の操作</span>
+          <strong>{cfg.label}</strong>
+        </div>
 
         <div className="tc-button-area">
           <div className={`tc-btn-frame ${cfg.variant}`}>
@@ -254,12 +258,18 @@ function TimeclockPage() {
         </div>
 
         <div className="tc-log-section">
-          <div className="tc-log-label">本日のログ</div>
+          <div className="tc-log-header">
+            <div>
+              <div className="tc-log-title">本日の記録</div>
+              <div className="tc-log-subtitle">打刻後にここへ反映されます</div>
+            </div>
+            <div className={`tc-log-badge ${fk}`}>{STATUS_LABEL[fk]}</div>
+          </div>
           {logItems.map((x) => (
             <div key={x.key} className={`tc-log-row${x.time ? " done" : ""}`}>
               <div className="tc-log-icon">{x.icon}</div>
               <div className="tc-log-text">{x.label}</div>
-              <div className="tc-log-time">{x.time ?? "—"}</div>
+              <div className="tc-log-time">{x.time ?? "未記録"}</div>
             </div>
           ))}
         </div>
@@ -270,7 +280,10 @@ function TimeclockPage() {
           position: relative;
           height: 100vh;
           width: 100%;
-          background: radial-gradient(ellipse at 50% 30%, #0f1410 0%, #050805 100%);
+          background:
+            radial-gradient(ellipse at 50% 18%, rgba(43,96,40,0.22), transparent 42%),
+            radial-gradient(ellipse at 50% 72%, rgba(43,96,40,0.10), transparent 44%),
+            linear-gradient(180deg, #07100a 0%, #020604 100%);
           color: #e8f0ea;
           padding: 0;
           overflow-y: auto;
@@ -320,16 +333,16 @@ function TimeclockPage() {
         .tc-app {
           max-width: 480px;
           margin: 0 auto;
-          padding: 24px 20px 24px;
+          padding: 20px 18px max(22px, env(safe-area-inset-bottom));
           min-height: 100%;
           display: flex; flex-direction: column;
           align-items: center;
         }
         @media (max-width: 480px) {
-          .tc-app { padding: 12px 16px 20px; gap: 0; }
+          .tc-app { padding: 10px 14px max(18px, env(safe-area-inset-bottom)); gap: 0; }
         }
         .tc-name {
-          font-size: 18px; font-weight: 700;
+          font-size: 17px; font-weight: 700;
           letter-spacing: 0.02em;
         }
         .tc-name span {
@@ -337,18 +350,18 @@ function TimeclockPage() {
           font-size: 14px; margin-left: 4px;
         }
         .tc-date {
-          font-size: 13px; opacity: 0.55;
-          margin-top: 6px;
+          font-size: 12px; opacity: 0.55;
+          margin-top: 4px;
         }
         .tc-clock {
           font-family: 'Space Grotesk', sans-serif;
-          font-size: 44px; font-weight: 600;
+          font-size: 42px; font-weight: 650;
           letter-spacing: -0.02em;
-          margin-top: 6px;
+          margin-top: 4px;
           font-variant-numeric: tabular-nums;
         }
         @media (max-width: 480px) {
-          .tc-clock { font-size: 38px; margin-top: 4px; }
+          .tc-clock { font-size: clamp(36px, 11vw, 42px); margin-top: 2px; }
         }
         .tc-status-pill {
           display: inline-flex; align-items: center; gap: 6px;
@@ -358,7 +371,7 @@ function TimeclockPage() {
           border-radius: 999px;
           font-size: 12px;
           color: rgba(255,255,255,0.7);
-          margin-top: 12px;
+          margin-top: 10px;
           transition: all 0.3s ease;
         }
         @media (max-width: 480px) {
@@ -397,16 +410,35 @@ function TimeclockPage() {
           text-align: center;
         }
 
+        .tc-action-copy {
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+          margin-top: 14px;
+          padding: 7px 12px;
+          border: 1px solid rgba(255,255,255,0.08);
+          border-radius: 999px;
+          background: rgba(255,255,255,0.045);
+          color: rgba(255,255,255,0.62);
+          font-size: 11px;
+          letter-spacing: 0.08em;
+        }
+        .tc-action-copy strong {
+          color: #e8f0ea;
+          font-size: 13px;
+          letter-spacing: 0.1em;
+        }
+
         .tc-button-area {
           display: flex; align-items: center; justify-content: center;
           width: 100%;
-          padding: 24px 0 20px;
+          padding: 18px 0 14px;
         }
         @media (max-width: 480px) {
-          .tc-button-area { padding: 16px 0 12px; }
+          .tc-button-area { padding: 14px 0 10px; }
         }
         .tc-btn-frame {
-          width: 300px; height: 300px;
+          width: min(72vw, 280px); height: min(72vw, 280px);
           border-radius: 50%;
           background: radial-gradient(circle at 50% 40%, #1a201d 0%, #0a0d0b 70%, #050605 100%);
           box-shadow:
@@ -436,10 +468,10 @@ function TimeclockPage() {
         @keyframes tcRotateGlow { to { transform: rotate(360deg); } }
 
         @media (max-width: 480px) {
-          .tc-btn-frame { width: 260px; height: 260px; }
+          .tc-btn-frame { width: min(70vw, 264px); height: min(70vw, 264px); }
         }
         .tc-btn {
-          width: 240px; height: 240px;
+          width: calc(100% - 58px); height: calc(100% - 58px);
           border-radius: 50%;
           border: none;
           cursor: pointer;
@@ -453,11 +485,12 @@ function TimeclockPage() {
             inset 0 -10px 20px rgba(0,0,0,0.4);
           display: flex; flex-direction: column;
           align-items: center; justify-content: center;
-          gap: 10px;
+          gap: 9px;
           transition: all 0.08s ease-out;
           color: #fff;
           text-shadow: 0 2px 4px rgba(0,0,0,0.4);
           -webkit-tap-highlight-color: transparent;
+          touch-action: manipulation;
           overflow: hidden;
         }
         .tc-btn::before {
@@ -489,7 +522,7 @@ function TimeclockPage() {
         }
         .tc-btn:disabled { cursor: default; }
         .tc-btn-label {
-          font-size: 36px; font-weight: 900;
+          font-size: clamp(29px, 8vw, 34px); font-weight: 900;
           letter-spacing: 0.15em;
           line-height: 1;
         }
@@ -500,8 +533,8 @@ function TimeclockPage() {
           font-weight: 500;
         }
         @media (max-width: 480px) {
-          .tc-btn { width: 210px; height: 210px; }
-          .tc-btn-label { font-size: 30px; letter-spacing: 0.12em; }
+          .tc-btn { width: calc(100% - 54px); height: calc(100% - 54px); }
+          .tc-btn-label { letter-spacing: 0.12em; }
           .tc-btn-sub { font-size: 10px; letter-spacing: 0.24em; }
         }
 
@@ -538,36 +571,88 @@ function TimeclockPage() {
           --glow-c3: rgba(180,40,40,0.5);
         }
 
-        .tc-log-section { width: 100%; margin-top: 4px; max-width: 432px; }
-        .tc-log-label {
-          font-size: 11px;
-          color: rgba(255,255,255,0.4);
-          letter-spacing: 0.15em;
-          text-transform: uppercase;
-          margin-bottom: 8px;
-          padding-left: 4px;
-          font-family: 'Space Grotesk', sans-serif;
+        .tc-log-section {
+          width: 100%;
+          margin-top: 2px;
+          max-width: 432px;
+          padding: 12px;
+          border: 1px solid rgba(255,255,255,0.075);
+          border-radius: 18px;
+          background: linear-gradient(180deg, rgba(255,255,255,0.055), rgba(255,255,255,0.025));
+          box-shadow:
+            inset 0 1px 0 rgba(255,255,255,0.055),
+            0 16px 34px rgba(0,0,0,0.22);
+        }
+        .tc-log-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+          margin-bottom: 10px;
+        }
+        .tc-log-title {
+          font-size: 13px;
+          font-weight: 700;
+          letter-spacing: 0.06em;
+          color: rgba(255,255,255,0.86);
+        }
+        .tc-log-subtitle {
+          margin-top: 3px;
+          font-size: 10px;
+          color: rgba(255,255,255,0.38);
+          letter-spacing: 0.04em;
+        }
+        .tc-log-badge {
+          flex: 0 0 auto;
+          border-radius: 999px;
+          padding: 5px 9px;
+          border: 1px solid rgba(255,255,255,0.09);
+          background: rgba(255,255,255,0.05);
+          color: rgba(255,255,255,0.66);
+          font-size: 10px;
+          font-weight: 700;
+          letter-spacing: 0.08em;
+        }
+        .tc-log-badge.working,
+        .tc-log-badge.workingAfter,
+        .tc-log-badge.onBreak {
+          border-color: rgba(94,194,80,0.26);
+          background: rgba(53,129,40,0.12);
+          color: #9be388;
         }
         .tc-log-row {
           display: flex; align-items: center;
-          padding: 10px 14px;
+          min-height: 46px;
+          padding: 9px 12px;
           border-radius: 12px;
-          background: rgba(255,255,255,0.04);
+          background: rgba(0,0,0,0.16);
           border: 1px solid rgba(255,255,255,0.06);
-          margin-bottom: 5px;
+          margin-bottom: 6px;
           font-size: 13px;
           transition: all 0.2s ease;
         }
+        .tc-log-row:last-child { margin-bottom: 0; }
         .tc-log-row.done {
           background: rgba(53,129,40,0.08);
           border-color: rgba(94,194,80,0.2);
         }
-        .tc-log-icon { font-size: 18px; margin-right: 12px; width: 24px; text-align: center; }
+        .tc-log-icon {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 16px;
+          margin-right: 11px;
+          width: 28px;
+          height: 28px;
+          border-radius: 10px;
+          background: rgba(255,255,255,0.055);
+          text-align: center;
+        }
         .tc-log-text { flex: 1; font-weight: 500; }
         .tc-log-time {
           font-family: 'Space Grotesk', sans-serif;
-          font-size: 13px;
-          opacity: 0.6;
+          font-size: 12px;
+          opacity: 0.72;
           font-variant-numeric: tabular-nums;
         }
         .tc-log-row.done .tc-log-time { opacity: 1; color: #9be388; font-weight: 600; }

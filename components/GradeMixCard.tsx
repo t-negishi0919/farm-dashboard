@@ -303,24 +303,28 @@ export function GradeMixCard({ summary }: { summary: YearlySummary | null }) {
 }
 
 function BarView({ grades, max, totalQty }: { grades: GradeStat[]; max: number; totalQty: number }) {
+  const rows = grades.map((g) => {
+    const pct = max > 0 ? (g.quantity / max) * 100 : 0;
+    const sharePct = totalQty > 0 ? (g.quantity / totalQty) * 100 : 0;
+    const color = GRADE_COLOR[g.grade] ?? "var(--text-muted)";
+    return { ...g, pct, sharePct, color };
+  });
+
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-      {grades.map((g) => {
-        const pct = max > 0 ? (g.quantity / max) * 100 : 0;
-        const sharePct = totalQty > 0 ? (g.quantity / totalQty) * 100 : 0;
-        const color = GRADE_COLOR[g.grade] ?? "var(--text-muted)";
-        return (
+    <>
+      <div data-grade-bar-desktop style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {rows.map((g) => (
           <div key={g.grade}>
             <div className="flex justify-between" data-grade-row style={{ marginBottom: 4, gap: 8, flexWrap: "wrap", alignItems: "center" }}>
               <div className="flex items-center" style={{ gap: 8, flexWrap: "wrap", minWidth: 0 }}>
-                <span style={{ fontSize: 12, fontWeight: 600, fontFamily: "'Space Grotesk', sans-serif", color, minWidth: 32 }}>
+                <span style={{ fontSize: 12, fontWeight: 600, fontFamily: "'Space Grotesk', sans-serif", color: g.color, minWidth: 32 }}>
                   {g.grade}
                 </span>
                 <span style={{ fontSize: 12, fontFamily: "'Space Grotesk', sans-serif", color: "var(--text)" }}>
                   {g.quantity.toLocaleString()} 箱
                 </span>
                 <span style={{ fontSize: 11, fontFamily: "'Space Grotesk', sans-serif", color: "var(--text-dim)" }}>
-                  ({sharePct.toFixed(1)}%)
+                  ({g.sharePct.toFixed(1)}%)
                 </span>
               </div>
               <div className="flex items-center" data-grade-price style={{ gap: 12, fontSize: 11, fontFamily: "'Space Grotesk', sans-serif", color: "var(--text-muted)", flexWrap: "wrap" }}>
@@ -330,18 +334,67 @@ function BarView({ grades, max, totalQty }: { grades: GradeStat[]; max: number; 
             </div>
             <div style={{ height: 8, background: "var(--surface-hover)", borderRadius: 4, overflow: "hidden" }}>
               <div style={{
-                width: `${pct}%`,
+                width: `${g.pct}%`,
                 height: "100%",
-                background: color,
+                background: g.color,
                 opacity: 0.85,
                 transition: "width 0.4s ease",
                 borderRadius: 4,
               }} />
             </div>
           </div>
-        );
-      })}
-    </div>
+        ))}
+      </div>
+
+      <div data-grade-bar-mobile>
+        <div data-grade-vertical-chart>
+          {rows.map((g) => {
+            const barHeight = g.quantity > 0 ? Math.max(g.pct, 4) : 0;
+            return (
+              <div key={g.grade} data-grade-vertical-item>
+                <div data-grade-vertical-percent style={{ color: g.sharePct >= 8 ? g.color : "var(--text-dim)" }}>
+                  {g.sharePct >= 3 ? `${g.sharePct.toFixed(0)}%` : ""}
+                </div>
+                <div data-grade-vertical-track>
+                  <div
+                    data-grade-vertical-fill
+                    style={{
+                      height: `${barHeight}%`,
+                      background: g.color,
+                      boxShadow: g.quantity > 0 ? "0 0 16px rgba(0,0,0,0.22)" : undefined,
+                    }}
+                    title={`${g.grade}: ${g.quantity.toLocaleString()}箱 (${g.sharePct.toFixed(1)}%)`}
+                  />
+                </div>
+                <div data-grade-vertical-label style={{ color: g.color }}>{g.grade}</div>
+              </div>
+            );
+          })}
+        </div>
+
+        <div data-grade-mobile-list>
+          {rows
+            .slice()
+            .sort((a, b) => b.quantity - a.quantity)
+            .map((g) => (
+              <div key={g.grade} data-grade-mobile-row>
+                <div data-grade-mobile-grade style={{ color: g.color }}>
+                  <span style={{ background: g.color }} />
+                  {g.grade}
+                </div>
+                <div data-grade-mobile-main>
+                  <span>{g.quantity.toLocaleString()}箱</span>
+                  <span>{g.sharePct.toFixed(1)}%</span>
+                </div>
+                <div data-grade-mobile-amount>
+                  <span>¥{g.total.toLocaleString()}</span>
+                  <span>単価 ¥{g.unitPrice != null ? g.unitPrice.toLocaleString() : "—"}</span>
+                </div>
+              </div>
+            ))}
+        </div>
+      </div>
+    </>
   );
 }
 
@@ -424,9 +477,9 @@ function PieView({ grades, totalQty }: { grades: GradeStat[]; totalQty: number }
   };
 
   return (
-    <div data-pie-grid style={{ display: "grid", gridTemplateColumns: "minmax(0, 1.1fr) minmax(0, 1fr)", gap: 16, alignItems: "center" }}>
-      <div style={{ minWidth: 0 }}>
-        <ResponsiveContainer width="100%" height={280}>
+    <div data-pie-grid style={{ display: "grid", gridTemplateColumns: "minmax(260px, 0.92fr) minmax(220px, 1fr)", gap: 18, alignItems: "center" }}>
+      <div data-pie-chart-wrap style={{ minWidth: 0, overflow: "visible" }}>
+        <ResponsiveContainer width="100%" height={260}>
           <PieChart>
             <Pie
               data={data}
@@ -435,7 +488,7 @@ function PieView({ grades, totalQty }: { grades: GradeStat[]; totalQty: number }
               cx="50%"
               cy="50%"
               innerRadius={0}
-              outerRadius={100}
+              outerRadius={88}
               stroke="rgba(14,22,18,0.7)"
               strokeWidth={1.5}
               labelLine={false}
