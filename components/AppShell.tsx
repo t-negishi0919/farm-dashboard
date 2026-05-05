@@ -12,6 +12,7 @@ const navItems = [
   { href: "/shipping",        label: "出荷記録" },
   { href: "/timeclock",       label: "勤怠" },
   { href: "/timeclock/list",  label: "勤怠一覧" },
+  { href: "/feedback",        label: "ご要望・ご意見" },
 ];
 
 export function AppShell({
