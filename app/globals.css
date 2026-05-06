@@ -266,6 +266,24 @@
   [data-compare-vs] {
     display: none;
   }
+  [data-compare-detail-head] {
+    flex-direction: column;
+    align-items: stretch !important;
+  }
+  [data-compare-detail-head] > div:last-child {
+    min-width: 0 !important;
+    justify-content: flex-start !important;
+  }
+  [data-compare-card-list] {
+    grid-template-columns: 1fr !important;
+  }
+  [data-compare-grade-card] {
+    padding: 11px 10px 10px !important;
+  }
+  [data-compare-meter] {
+    grid-template-columns: 62px minmax(0, 1fr) 58px !important;
+    gap: 6px !important;
+  }
   /* ヘッダー: タイトルとツールバーを縦に積む */
   [data-grade-mix-header] {
     flex-direction: column;
