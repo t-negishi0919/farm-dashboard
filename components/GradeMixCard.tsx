@@ -421,6 +421,10 @@ function arcPath(cx: number, cy: number, r1: number, r2: number, a1: number, a2:
   return `M ${sx1} ${sy1} A ${r2} ${r2} 0 ${large} 0 ${sx2} ${sy2} L ${sx3} ${sy3} A ${r1} ${r1} 0 ${large} 1 ${sx4} ${sy4} Z`;
 }
 
+function clamp(n: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, n));
+}
+
 function PieView({ grades, totalQty }: { grades: GradeStat[]; totalQty: number }) {
   // 構成比降順で扇型を並べる(視認性: 大きいセグメントが上から右回りに)
   const data: DonutDatum[] = grades
@@ -444,13 +448,15 @@ function PieView({ grades, totalQty }: { grades: GradeStat[]; totalQty: number }
     { acc: 0, items: [] as (DonutDatum & { a1: number; a2: number; mid: number })[] },
   );
 
-  // エントリーアニメーション (0 → 1, ease-out cubic, 900ms)
+  const dataSignature = data.map((d) => `${d.grade}:${d.quantity}`).join("|");
+
+  // エントリーアニメーション (0 → 1, ease-out cubic, 720ms)
   const [progress, setProgress] = useState(0);
   useEffect(() => {
     let raf = 0;
     const start = performance.now();
     const tick = (t: number) => {
-      const elapsed = (t - start) / 900;
+      const elapsed = (t - start) / 720;
       const p = Math.min(1, elapsed);
       setProgress(1 - Math.pow(1 - p, 3));
       if (p < 1) raf = requestAnimationFrame(tick);
@@ -460,10 +466,10 @@ function PieView({ grades, totalQty }: { grades: GradeStat[]; totalQty: number }
     setProgress(0);
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [grades.length]);
+  }, [dataSignature]);
 
   const [active, setActive] = useState<string | null>(null);
-  const cx = 200, cy = 200, r1 = 92, r2 = 152;
+  const cx = 200, cy = 200, r1 = 88, r2 = 146;
 
   const avgPrice = totalQty > 0
     ? Math.round(data.reduce((s, d) => s + (d.unitPrice ?? 0) * d.quantity, 0) / totalQty)
@@ -488,7 +494,7 @@ function PieView({ grades, totalQty }: { grades: GradeStat[]; totalQty: number }
       </div>
 
       {/* SVG ドーナツ */}
-      <svg viewBox="0 0 400 400" style={{ width: "100%", maxWidth: 460, alignSelf: "center", height: "auto", aspectRatio: "1 / 1", display: "block" }}>
+      <svg viewBox="-48 -18 496 436" style={{ width: "100%", maxWidth: 460, alignSelf: "center", height: "auto", aspectRatio: "1 / 1", display: "block", overflow: "visible" }}>
         <defs>
           {segs.map((s) => (
             <radialGradient key={s.grade} id={`gA-${slugId(s.grade)}`} cx="0.5" cy="0.5" r="0.7">
@@ -565,20 +571,22 @@ function PieView({ grades, totalQty }: { grades: GradeStat[]; totalQty: number }
         })}
 
         {/* leader lines + labels (>=8%) */}
-        {progress > 0.95 && segs.filter((s) => s.share >= 8).map((s) => {
+        {segs.filter((s) => s.share >= 8).map((s) => {
           const [lx1, ly1] = pol(cx, cy, r2 + 12, s.mid);
           const [lx2, ly2] = pol(cx, cy, r2 + 30, s.mid);
           const right = lx2 > cx;
-          const lx3 = right ? lx2 + 12 : lx2 - 12;
+          const lx3 = clamp(right ? lx2 + 14 : lx2 - 14, 30, 370);
+          const textX = lx3 + (right ? 6 : -6);
+          const labelOpacity = clamp((progress - 0.55) / 0.35, 0, 1);
           return (
-            <g key={`L-${s.grade}`} style={{ pointerEvents: "none" }}>
+            <g key={`L-${s.grade}`} opacity={labelOpacity} style={{ pointerEvents: "none", transition: "opacity 0.18s ease" }}>
               <line x1={lx1} y1={ly1} x2={lx2} y2={ly2} stroke={s.color} strokeWidth="1.3" opacity="0.7" />
               <line x1={lx2} y1={ly2} x2={lx3} y2={ly2} stroke={s.color} strokeWidth="1.3" opacity="0.7" />
               <circle cx={lx1} cy={ly1} r="2.5" fill={s.color} />
-              <text x={lx3 + (right ? 4 : -4)} y={ly2 - 4} textAnchor={right ? "start" : "end"} fill="#fff" fontSize="14" fontWeight="700" fontFamily="'Noto Sans JP', sans-serif">
+              <text x={textX} y={ly2 - 4} textAnchor={right ? "start" : "end"} fill="#fff" fontSize="13" fontWeight="800" fontFamily="'Noto Sans JP', sans-serif">
                 {s.grade}
               </text>
-              <text x={lx3 + (right ? 4 : -4)} y={ly2 + 13} textAnchor={right ? "start" : "end"} fill={s.color} fontSize="13" fontWeight="600" fontFamily="'Space Grotesk', sans-serif">
+              <text x={textX} y={ly2 + 13} textAnchor={right ? "start" : "end"} fill={s.color} fontSize="12" fontWeight="700" fontFamily="'Space Grotesk', sans-serif">
                 {s.share.toFixed(1)}%
               </text>
             </g>
@@ -676,63 +684,201 @@ function slugId(grade: string): string {
 }
 
 function StackedBarView({ grades, totalQty }: { grades: GradeStat[]; totalQty: number }) {
+  const [active, setActive] = useState<string | null>(null);
+
   const data = grades.map((g) => ({
     ...g,
     share: totalQty > 0 ? (g.quantity / totalQty) * 100 : 0,
     color: GRADE_COLOR[g.grade] ?? "var(--text-muted)",
   }));
 
+  // 上下ラベルの中央位置を事前計算
+  const positioned = data.reduce<(typeof data[number] & { center: number; end: number })[]>((items, d) => {
+    const start = items.at(-1)?.end ?? 0;
+    const end = start + d.share;
+    items.push({ ...d, center: start + d.share / 2, end });
+    return items;
+  }, []);
+
+  const activeData = active ? positioned.find((d) => d.grade === active) ?? null : null;
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-      {/* 100% 帯 */}
-      <div style={{ height: 36, display: "flex", borderRadius: 8, overflow: "hidden", border: "1px solid var(--border-subtle)" }}>
-        {data.map((d) => (
+      {/* 案D: ミニマル・スレッド */}
+      <div>
+        {/* top: 等級ラベル(>=4% のみ) */}
+        <div style={{ position: "relative", height: 28 }}>
+          {positioned.map((d) => {
+            if (d.share < 4) return null;
+            const isActive = active === d.grade;
+            const dimmed = active && !isActive;
+            return (
+              <div
+                key={d.grade}
+                style={{
+                  position: "absolute",
+                  left: `${d.center}%`,
+                  transform: "translateX(-50%)",
+                  bottom: 4,
+                  fontSize: d.share >= 50 ? 14 : 11,
+                  fontWeight: 900,
+                  color: d.color,
+                  whiteSpace: "nowrap",
+                  fontFamily: "'Noto Sans JP', sans-serif",
+                  opacity: dimmed ? 0.4 : 1,
+                  transition: "opacity 0.2s",
+                }}
+              >
+                {d.grade}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* the bar (薄い帯) */}
+        <div
+          style={{
+            height: 14,
+            display: "flex",
+            borderRadius: 7,
+            overflow: "hidden",
+            boxShadow: "inset 0 1px 2px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.04)",
+          }}
+        >
+          {positioned.map((d) => {
+            const isActive = active === d.grade;
+            const dimmed = active && !isActive;
+            return (
+              <div
+                key={d.grade}
+                onMouseEnter={() => setActive(d.grade)}
+                onMouseLeave={() => setActive(null)}
+                onClick={() => setActive((cur) => (cur === d.grade ? null : d.grade))}
+                title={`${d.grade}: ${d.share.toFixed(1)}%`}
+                style={{
+                  width: `${d.share}%`,
+                  background: d.color,
+                  borderRight: "1px solid rgba(0,0,0,0.5)",
+                  opacity: dimmed ? 0.25 : 1,
+                  transform: isActive ? "scaleY(1.6)" : "scaleY(1)",
+                  transformOrigin: "center",
+                  transition: "all 0.2s",
+                  cursor: "pointer",
+                  minWidth: 0,
+                }}
+              />
+            );
+          })}
+        </div>
+
+        {/* bottom: 構成比(>=4% のみ) */}
+        <div style={{ position: "relative", height: 26, marginTop: 6 }}>
+          {positioned.map((d) => {
+            if (d.share < 4) return null;
+            const isActive = active === d.grade;
+            const dimmed = active && !isActive;
+            return (
+              <div
+                key={d.grade}
+                style={{
+                  position: "absolute",
+                  left: `${d.center}%`,
+                  transform: "translateX(-50%)",
+                  fontSize: 11,
+                  fontWeight: 600,
+                  color: "var(--text-muted)",
+                  fontFamily: "'Space Grotesk', sans-serif",
+                  opacity: dimmed ? 0.4 : 1,
+                  transition: "opacity 0.2s",
+                }}
+              >
+                {d.share.toFixed(1)}%
+              </div>
+            );
+          })}
+        </div>
+
+        {/* active 詳細パネル */}
+        {activeData && (
           <div
-            key={d.grade}
-            title={`${d.grade}: ${d.share.toFixed(1)}%`}
             style={{
-              width: `${d.share}%`,
-              background: d.color,
+              marginTop: 8,
+              padding: "10px 14px",
+              borderLeft: `3px solid ${activeData.color}`,
+              background: `linear-gradient(90deg, ${activeData.color}26, transparent)`,
               display: "flex",
               alignItems: "center",
-              justifyContent: "center",
-              minWidth: 0,
+              gap: 14,
+              flexWrap: "wrap",
             }}
           >
-            {d.share >= 6 && (
-              <span style={{
-                color: "#0e1610",
-                fontSize: 12,
-                fontWeight: 800,
-                fontFamily: "'Space Grotesk', sans-serif",
-                whiteSpace: "nowrap",
-                padding: "0 4px",
-              }}>
-                {d.grade} {d.share.toFixed(1)}%
+            <div
+              style={{
+                fontSize: 18,
+                fontWeight: 900,
+                color: activeData.color,
+                fontFamily: "'Noto Sans JP', sans-serif",
+              }}
+            >
+              {activeData.grade}
+            </div>
+            <div style={{ flex: 1, fontSize: 11, color: "var(--text-muted)", minWidth: 0 }}>
+              <span
+                style={{
+                  fontFamily: "'Space Grotesk', sans-serif",
+                  fontSize: 14,
+                  fontWeight: 700,
+                  color: "var(--text)",
+                }}
+              >
+                {activeData.share.toFixed(1)}%
               </span>
-            )}
+              <span style={{ margin: "0 8px", opacity: 0.4 }}>·</span>
+              {activeData.quantity.toLocaleString()} 箱
+              <span style={{ margin: "0 8px", opacity: 0.4 }}>·</span>
+              ¥{activeData.unitPrice != null ? activeData.unitPrice.toLocaleString() : "—"}/箱
+            </div>
           </div>
-        ))}
+        )}
       </div>
 
       {/* 凡例 */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 8 }}>
-        {data.map((d) => (
-          <div key={d.grade} className="flex items-center justify-between" style={{ gap: 8, minWidth: 0 }}>
-            <div className="flex items-center gap-2" style={{ minWidth: 0 }}>
-              <div style={{ width: 12, height: 12, borderRadius: 3, background: d.color, flexShrink: 0 }} />
-              <span style={{ fontSize: 13, fontWeight: 700, fontFamily: "'Space Grotesk', sans-serif", color: d.color }}>
-                {d.grade}
-              </span>
-              <span style={{ fontSize: 13, fontWeight: 700, fontFamily: "'Space Grotesk', sans-serif", color: "var(--text)" }}>
-                {d.share.toFixed(1)}%
+        {data.map((d) => {
+          const isActive = active === d.grade;
+          const dimmed = active && !isActive;
+          return (
+            <div
+              key={d.grade}
+              className="flex items-center justify-between"
+              onMouseEnter={() => setActive(d.grade)}
+              onMouseLeave={() => setActive(null)}
+              style={{
+                gap: 8,
+                minWidth: 0,
+                padding: "4px 6px",
+                borderRadius: 6,
+                background: isActive ? "rgba(255,255,255,0.04)" : "transparent",
+                opacity: dimmed ? 0.5 : 1,
+                cursor: "pointer",
+                transition: "all 0.2s",
+              }}
+            >
+              <div className="flex items-center gap-2" style={{ minWidth: 0 }}>
+                <div style={{ width: 12, height: 12, borderRadius: 3, background: d.color, flexShrink: 0, boxShadow: `0 0 8px ${d.color}88` }} />
+                <span style={{ fontSize: 13, fontWeight: 700, fontFamily: "'Space Grotesk', sans-serif", color: d.color }}>
+                  {d.grade}
+                </span>
+                <span style={{ fontSize: 13, fontWeight: 700, fontFamily: "'Space Grotesk', sans-serif", color: "var(--text)" }}>
+                  {d.share.toFixed(1)}%
+                </span>
+              </div>
+              <span style={{ fontSize: 10, fontFamily: "'Space Grotesk', sans-serif", color: "var(--text-muted)", whiteSpace: "nowrap" }}>
+                {d.quantity.toLocaleString()}箱
               </span>
             </div>
-            <span style={{ fontSize: 10, fontFamily: "'Space Grotesk', sans-serif", color: "var(--text-muted)", whiteSpace: "nowrap" }}>
-              {d.quantity.toLocaleString()}箱
-            </span>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
@@ -768,6 +914,16 @@ function CompareView({ a, aLabel, b, bLabel }: {
       qtyDelta: aQty - bQty,
     };
   });
+  const visibleRows = rows.filter((r) => r.aQty > 0 || r.bQty > 0);
+  const changedRows = visibleRows
+    .filter((r) => Math.abs(r.shareDelta) >= 0.05)
+    .sort((x, y) => Math.abs(y.shareDelta) - Math.abs(x.shareDelta));
+  const upRows = changedRows.filter((r) => r.shareDelta > 0).slice(0, 2);
+  const downRows = changedRows.filter((r) => r.shareDelta < 0).slice(0, 2);
+  const mainChange = changedRows[0];
+  const summaryText = mainChange
+    ? `${mainChange.grade} が ${mainChange.shareDelta > 0 ? "増えています" : "少なめです"}。全体量は ${aTotal >= bTotal ? "比較対象より多め" : "比較対象より少なめ"} です。`
+    : `等級の割合は ${bLabel} とほぼ同じです。全体量は ${aTotal >= bTotal ? "比較対象より多め" : "比較対象より少なめ"} です。`;
 
   if (aTotal === 0 && bTotal === 0) {
     return (
@@ -779,160 +935,201 @@ function CompareView({ a, aLabel, b, bLabel }: {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
-      {/* 縦の 100% 積み上げ棒 ×2(横並び) */}
-      <div data-compare-stack-panel style={{
-        display: "flex",
-        justifyContent: "center",
-        alignItems: "stretch",
-        gap: 34,
-        padding: "16px 14px 18px",
+      <div data-compare-detail-panel style={{
         border: "1px solid var(--border-subtle)",
-        borderRadius: 12,
-        background: "rgba(255,255,255,0.025)",
-        overflow: "hidden",
+        borderRadius: 14,
+        padding: 14,
+        background: "linear-gradient(180deg, rgba(255,255,255,0.045), rgba(255,255,255,0.018))",
+        boxShadow: "inset 0 1px 0 rgba(255,255,255,0.05)",
       }}>
-        <CompareStackColumn
-          label={aLabel}
-          total={aTotal}
-          accent="var(--green-bright)"
-          segments={rows.map((r) => ({ grade: r.grade, color: r.color, share: r.aShare, qty: r.aQty }))}
-        />
-        <div data-compare-vs style={{
-          alignSelf: "center",
-          fontSize: 10,
-          letterSpacing: "0.12em",
-          color: "var(--text-dim)",
-          fontFamily: "'Space Grotesk', sans-serif",
+        <div data-compare-detail-head style={{
+          display: "flex",
+          alignItems: "flex-start",
+          justifyContent: "space-between",
+          gap: 12,
+          marginBottom: 12,
         }}>
-          VS
-        </div>
-        <CompareStackColumn
-          label={bLabel}
-          total={bTotal}
-          accent="var(--text-muted)"
-          segments={rows.map((r) => ({ grade: r.grade, color: r.color, share: r.bShare, qty: r.bQty }))}
-        />
-      </div>
-
-      {/* 等級別 比較表 */}
-      <div style={{ marginTop: 4, border: "1px solid var(--border-subtle)", borderRadius: 8, overflow: "hidden" }}>
-        <div data-compare-row data-compare-head style={{
-          display: "grid",
-          gridTemplateColumns: "60px 1fr 1fr 1fr",
-          padding: "8px 12px",
-          background: "var(--surface-hover)",
-          fontSize: 10,
-          letterSpacing: "0.08em",
-          textTransform: "uppercase",
-          color: "var(--text-muted)",
-          fontFamily: "'Space Grotesk', sans-serif",
-        }}>
-          <div>等級</div>
-          <div style={{ textAlign: "right" }}>{aLabel}</div>
-          <div style={{ textAlign: "right" }}>{bLabel}</div>
-          <div style={{ textAlign: "right" }}>差分</div>
-        </div>
-        {rows.map((r) => {
-          const sign = r.shareDelta >= 0 ? "+" : "";
-          const deltaColor = Math.abs(r.shareDelta) < 0.05
-            ? "var(--text-dim)"
-            : r.shareDelta > 0 ? "var(--green-bright)" : "var(--red, oklch(0.65 0.18 25))";
-          return (
-            <div key={r.grade} data-compare-row style={{
-              display: "grid",
-              gridTemplateColumns: "60px 1fr 1fr 1fr",
-              padding: "8px 12px",
-              borderTop: "1px solid var(--border-subtle)",
-              alignItems: "center",
-              fontFamily: "'Space Grotesk', sans-serif",
-              fontSize: 12,
-            }}>
-              <div className="flex items-center gap-2" style={{ minWidth: 0 }}>
-                <span style={{ width: 8, height: 8, borderRadius: 2, background: r.color, flexShrink: 0 }} />
-                <span style={{ color: r.color, fontWeight: 700 }}>{r.grade}</span>
-              </div>
-              <div style={{ textAlign: "right", color: "var(--text)" }}>
-                <div>{r.aShare.toFixed(1)}%</div>
-                <div style={{ fontSize: 10, color: "var(--text-dim)" }}>{r.aQty.toLocaleString()} 箱</div>
-              </div>
-              <div style={{ textAlign: "right", color: "var(--text-muted)" }}>
-                <div>{r.bShare.toFixed(1)}%</div>
-                <div style={{ fontSize: 10, color: "var(--text-dim)" }}>{r.bQty.toLocaleString()} 箱</div>
-              </div>
-              <div style={{ textAlign: "right", color: deltaColor, fontWeight: 600 }}>
-                <div>{sign}{r.shareDelta.toFixed(1)}pt</div>
-                <div style={{ fontSize: 10, fontWeight: 400 }}>{r.qtyDelta >= 0 ? "+" : ""}{r.qtyDelta.toLocaleString()} 箱</div>
-              </div>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 12, color: "var(--text)", fontWeight: 700 }}>
+              等級ごとの変化
             </div>
-          );
-        })}
+            <div style={{ marginTop: 3, fontSize: 11, color: "var(--text-muted)", lineHeight: 1.5 }}>
+              {summaryText}
+            </div>
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, justifyContent: "flex-end", minWidth: 160 }}>
+            {upRows.map((r) => <CompareDeltaChip key={`up-${r.grade}`} row={r} />)}
+            {downRows.map((r) => <CompareDeltaChip key={`down-${r.grade}`} row={r} />)}
+            {upRows.length === 0 && downRows.length === 0 && (
+              <span style={{
+                padding: "5px 8px",
+                borderRadius: 999,
+                background: "rgba(255,255,255,0.055)",
+                color: "var(--text-muted)",
+                fontSize: 11,
+                fontWeight: 700,
+              }}>
+                ほぼ同じ
+              </span>
+            )}
+          </div>
+        </div>
+
+        <div data-compare-card-list style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 10 }}>
+          {visibleRows.map((r) => (
+            <CompareGradeCard key={r.grade} row={r} aLabel={aLabel} bLabel={bLabel} />
+          ))}
+        </div>
       </div>
     </div>
   );
 }
 
-function CompareStackColumn({ label, total, accent, segments }: {
-  label: string; total: number; accent: string;
-  segments: { grade: string; color: string; share: number; qty: number }[];
+function CompareDeltaChip({ row }: {
+  row: {
+    grade: string;
+    color: string;
+    shareDelta: number;
+  };
 }) {
-  const barH = 252;
-  const barW = 78;
+  const isUp = row.shareDelta > 0;
   return (
-    <div data-compare-stack-column style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8, minWidth: 0 }}>
-      <div style={{ fontSize: 12, fontWeight: 600, fontFamily: "'Space Grotesk', sans-serif", color: accent, textAlign: "center", maxWidth: 130, lineHeight: 1.3 }}>
+    <span style={{
+      display: "inline-flex",
+      alignItems: "center",
+      gap: 6,
+      padding: "5px 8px",
+      borderRadius: 999,
+      border: `1px solid ${isUp ? "rgba(34,197,94,0.28)" : "rgba(239,68,68,0.28)"}`,
+      background: isUp ? "rgba(34,197,94,0.10)" : "rgba(239,68,68,0.10)",
+      color: isUp ? "var(--green-bright)" : "var(--red, oklch(0.65 0.18 25))",
+      fontSize: 11,
+      fontWeight: 800,
+      fontFamily: "'Space Grotesk', sans-serif",
+      whiteSpace: "nowrap",
+    }}>
+      <span style={{ width: 7, height: 7, borderRadius: 2, background: row.color, boxShadow: `0 0 8px ${row.color}` }} />
+      {row.grade} {isUp ? "+" : ""}{row.shareDelta.toFixed(1)}pt
+    </span>
+  );
+}
+
+function CompareGradeCard({ row, aLabel, bLabel }: {
+  row: {
+    grade: string;
+    color: string;
+    aQty: number;
+    bQty: number;
+    aShare: number;
+    bShare: number;
+    shareDelta: number;
+    qtyDelta: number;
+  };
+  aLabel: string;
+  bLabel: string;
+}) {
+  const isFlat = Math.abs(row.shareDelta) < 0.05;
+  const isUp = row.shareDelta > 0;
+  const deltaColor = isFlat
+    ? "var(--text-muted)"
+    : isUp ? "var(--green-bright)" : "var(--red, oklch(0.65 0.18 25))";
+  const sign = row.shareDelta >= 0 ? "+" : "";
+  return (
+    <div data-compare-grade-card style={{
+      position: "relative",
+      overflow: "hidden",
+      border: "1px solid var(--border-subtle)",
+      borderRadius: 12,
+      padding: "12px 12px 11px",
+      background: `linear-gradient(135deg, ${row.color}16, rgba(255,255,255,0.026) 38%, rgba(255,255,255,0.014))`,
+      boxShadow: "inset 0 1px 0 rgba(255,255,255,0.045)",
+      minWidth: 0,
+    }}>
+      <div style={{
+        position: "absolute",
+        inset: "0 auto 0 0",
+        width: 3,
+        background: row.color,
+        boxShadow: `0 0 18px ${row.color}`,
+      }} />
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 10 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+          <span style={{ width: 12, height: 12, borderRadius: 3, background: row.color, boxShadow: `0 0 12px ${row.color}` }} />
+          <span style={{ color: row.color, fontWeight: 900, fontSize: 18, fontFamily: "'Space Grotesk', sans-serif" }}>
+            {row.grade}
+          </span>
+        </div>
+        <div style={{
+          padding: "4px 7px",
+          borderRadius: 999,
+          background: isFlat ? "rgba(255,255,255,0.055)" : isUp ? "rgba(34,197,94,0.11)" : "rgba(239,68,68,0.11)",
+          color: deltaColor,
+          fontSize: 12,
+          lineHeight: 1,
+          fontWeight: 900,
+          fontFamily: "'Space Grotesk', sans-serif",
+          whiteSpace: "nowrap",
+        }}>
+          {sign}{row.shareDelta.toFixed(1)}pt
+        </div>
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <CompareMeter label={aLabel} qty={row.aQty} share={row.aShare} color={row.color} active />
+        <CompareMeter label={bLabel} qty={row.bQty} share={row.bShare} color="rgba(232,240,234,0.45)" />
+      </div>
+      <div style={{
+        marginTop: 9,
+        color: "var(--text-dim)",
+        fontSize: 10,
+        fontFamily: "'Space Grotesk', sans-serif",
+        textAlign: "right",
+      }}>
+        {row.qtyDelta >= 0 ? "+" : ""}{row.qtyDelta.toLocaleString()} 箱
+      </div>
+    </div>
+  );
+}
+
+function CompareMeter({ label, qty, share, color, active = false }: {
+  label: string;
+  qty: number;
+  share: number;
+  color: string;
+  active?: boolean;
+}) {
+  const width = share <= 0 ? 0 : Math.max(3, share);
+  return (
+    <div data-compare-meter style={{ display: "grid", gridTemplateColumns: "82px minmax(0, 1fr) 68px", gap: 8, alignItems: "center", minWidth: 0 }}>
+      <div style={{
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap",
+        color: active ? "var(--text)" : "var(--text-muted)",
+        fontSize: 10,
+        fontWeight: active ? 700 : 500,
+      }}>
         {label}
       </div>
-      {total === 0 ? (
+      <div style={{ height: active ? 12 : 8, borderRadius: 999, background: "rgba(255,255,255,0.07)", overflow: "hidden" }}>
         <div style={{
-          width: barW, height: barH,
-          borderRadius: 8,
-          border: "1px dashed var(--border-subtle)",
-          display: "flex", alignItems: "center", justifyContent: "center",
-          fontSize: 11, color: "var(--text-dim)",
-        }}>
-          データなし
-        </div>
-      ) : (
-        <div style={{
-          width: barW, height: barH,
-          borderRadius: 8, overflow: "hidden",
-          border: "1px solid var(--border-subtle)",
-          display: "flex", flexDirection: "column",
-          background: "var(--surface-hover)",
-        }}>
-          {segments.filter((s) => s.share > 0).map((s) => (
-            <div
-              key={s.grade}
-              title={`${s.grade}: ${s.share.toFixed(1)}% (${s.qty.toLocaleString()}箱)`}
-              style={{
-                height: `${s.share}%`,
-                background: s.color,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                minHeight: 0,
-                overflow: "hidden",
-              }}
-            >
-              {s.share >= 6 && (
-                <span style={{
-                  color: "#0e1610",
-                  fontSize: 10,
-                  fontWeight: 800,
-                  fontFamily: "'Space Grotesk', sans-serif",
-                  whiteSpace: "nowrap",
-                  padding: "0 4px",
-                  textShadow: "0 1px 0 rgba(255,255,255,0.2)",
-                }}>
-                  {s.grade} {s.share.toFixed(0)}%
-                </span>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-      <div style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "'Space Grotesk', sans-serif", textAlign: "center" }}>
-        合計 {total.toLocaleString()} 箱
+          width: `${width}%`,
+          height: "100%",
+          borderRadius: 999,
+          background: color,
+          opacity: share <= 0 ? 0 : 1,
+          boxShadow: active ? `0 0 14px ${color}` : "none",
+        }} />
+      </div>
+      <div style={{
+        color: active ? "var(--text)" : "var(--text-muted)",
+        fontSize: 11,
+        fontWeight: active ? 800 : 500,
+        textAlign: "right",
+        whiteSpace: "nowrap",
+        fontFamily: "'Space Grotesk', sans-serif",
+      }}>
+        {share.toFixed(1)}%
+        <span style={{ color: "var(--text-dim)", fontSize: 9 }}> / {qty.toLocaleString()}</span>
       </div>
     </div>
   );
