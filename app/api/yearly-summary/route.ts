@@ -1,6 +1,6 @@
 import { getShippingData } from "@/lib/googleSheets";
 
-export const revalidate = 600;
+export const revalidate = 0;
 
 export type MonthlyPoint = {
   month: number;            // 1-12
